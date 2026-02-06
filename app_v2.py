@@ -151,7 +151,7 @@ def show_overview():
                 hole=0.5,
                 marker=dict(colors=px.colors.qualitative.Set3)
             )])
-            fig.update_layout(template="plotly_dark", paper_bgcolor="transparent")
+            fig.update_layout(template="plotly_dark", )
             st.plotly_chart(fig, use_container_width=True)
     
     with col_right:
@@ -315,10 +315,14 @@ def show_yearly_summary():
 
 
 def show_expense_tracker():
-    """支出追踪"""
-    st.title("💸 支出追踪 Expense Tracker")
+    """支出/收入追踪"""
+    st.title("💸 支出与收入 Tracker")
+    st.caption("记录每月收支，分析消费习惯")
     
-    # 添加支出/收入
+    rates = fetch_exchange_rates()
+    usd_to_rmb = rates['USD']['rmb']
+    
+    # 添加交易
     with st.expander("➕ 记一笔", expanded=False):
         col1, col2, col3 = st.columns(3)
         with col1:
@@ -332,7 +336,7 @@ def show_expense_tracker():
         with col4:
             category = st.selectbox(
                 "分类",
-                ["餐饮", "房租", "交通", "家庭", "外食", "日用", "在家吃饭", "订阅", "工资", "投资", "其他"]
+                ["餐饮", "房租", "交通", "家庭", "外食", "日用", "在家吃饭", "订阅", "工资", "投资", "分红", "其他"]
             )
         with col5:
             subcategory = st.text_input("子分类（可选）")
@@ -360,23 +364,88 @@ def show_expense_tracker():
             st.success("✅ 已保存！")
             st.rerun()
     
-    # 显示交易记录
-    st.subheader("📝 交易记录")
-    transactions = get_transactions(limit=200)
+    # 获取交易记录
+    transactions = get_transactions(limit=500)
     
     if transactions:
         df = pd.DataFrame(transactions)
-        df['date'] = pd.to_datetime(df['datetime']).dt.strftime('%Y-%m-%d')
+        df['date'] = pd.to_datetime(df['datetime'])
+        df['month'] = df['date'].dt.strftime('%Y-%m')
+        df['amount_rmb'] = df.apply(
+            lambda x: x['price'] * (usd_to_rmb if x['currency'] == 'USD' else 7.8 if x['currency'] == 'HKD' else 1),
+            axis=1
+        )
         
-        # 筛选
-        col_filter1, col_filter2 = st.columns(2)
-        with col_filter1:
-            filter_type = st.selectbox("筛选类型", ["全部", "EXPENSE", "INCOME"])
-        with col_filter2:
-            filter_cat = st.selectbox("筛选分类", ["全部"] + list(df['subcategory'].dropna().unique()))
+        # 筛选月份
+        months = sorted(df['month'].unique(), reverse=True)
+        selected_month = st.selectbox("选择月份", months)
+        month_df = df[df['month'] == selected_month]
         
-        if filter_type != "全部":
-            df = df[df['action'] == filter_type]
+        # 月度汇总
+        st.markdown(f"### 📅 {selected_month} 月度汇总")
+        
+        income = month_df[month_df['action'] == 'INCOME']['amount_rmb'].sum()
+        expense = month_df[month_df['action'] == 'EXPENSE']['amount_rmb'].sum()
+        net = income - expense
+        
+        col_m1, col_m2, col_m3 = st.columns(3)
+        col_m1.metric("💰 本月收入", f"¥{income:,.0f}", delta_color="normal")
+        col_m2.metric("💸 本月支出", f"¥{expense:,.0f}", delta_color="inverse")
+        col_m3.metric("📊 本月净积累", f"¥{net:,.0f}", delta=f"¥{net:,.0f}")
+        
+        # 支出分类饼图
+        col_left, col_right = st.columns(2)
+        
+        with col_left:
+            st.subheader("📊 支出分类")
+            expense_df = month_df[month_df['action'] == 'EXPENSE']
+            if not expense_df.empty:
+                cat_expense = expense_df.groupby('subcategory')['amount_rmb'].sum()
+                fig = go.Figure(data=[go.Pie(
+                    labels=cat_expense.index,
+                    values=cat_expense.values,
+                    hole=0.4,
+                    marker=dict(colors=px.colors.qualitative.Set3)
+                )])
+                fig.update_layout(template="plotly_dark", height=300)
+                st.plotly_chart(fig, use_container_width=True)
+        
+        with col_right:
+            st.subheader("📈 收入分类")
+            income_df = month_df[month_df['action'] == 'INCOME']
+            if not income_df.empty:
+                cat_income = income_df.groupby('subcategory')['amount_rmb'].sum()
+                fig2 = go.Figure(data=[go.Pie(
+                    labels=cat_income.index,
+                    values=cat_income.values,
+                    hole=0.4,
+                    marker=dict(colors=px.colors.qualitative.Pastel)
+                )])
+                fig2.update_layout(template="plotly_dark", height=300)
+                st.plotly_chart(fig2, use_container_width=True)
+        
+        # 月度趋势图
+        st.subheader("📈 月度趋势")
+        monthly_summary = df.groupby('month').agg({
+            'amount_rmb': lambda x: month_df[month_df['action'] == 'INCOME']['amount_rmb'].sum() if 'INCOME' in x.values else 0
+        })
+        
+        # 正确计算每月收支
+        monthly_income = df[df['action'] == 'INCOME'].groupby('month')['amount_rmb'].sum()
+        monthly_expense = df[df['action'] == 'EXPENSE'].groupby('month')['amount_rmb'].sum()
+        
+        fig_trend = go.Figure()
+        fig_trend.add_trace(go.Bar(name='收入', x=monthly_income.index, y=monthly_income.values, marker_color='#00E5FF'))
+        fig_trend.add_trace(go.Bar(name='支出', x=monthly_expense.index, y=monthly_expense.values, marker_color='#FF6B6B'))
+        fig_trend.update_layout(barmode='group', template="plotly_dark", height=350)
+        st.plotly_chart(fig_trend, use_container_width=True)
+        
+        # 交易明细表
+        st.subheader("📝 本月交易明细")
+        display_df = month_df[['date', 'action', 'subcategory', 'price', 'currency', 'target', 'note']].copy()
+        display_df['date'] = display_df['date'].dt.strftime('%Y-%m-%d')
+        display_df.columns = ['日期', '类型', '分类', '金额', '币种', '对象', '备注']
+        st.dataframe(display_df, use_container_width=True)
         if filter_cat != "全部":
             df = df[df['subcategory'] == filter_cat]
         
@@ -573,6 +642,102 @@ def show_wheel():
             }), use_container_width=True)
 
 
+def show_trading_log():
+    """交易日志"""
+    st.title("📝 交易日志 Trading Log")
+    st.caption("记录每笔投资交易，支持筛选和统计")
+    
+    rates = fetch_exchange_rates()
+    usd_to_rmb = rates['USD']['rmb']
+    
+    # 添加交易
+    with st.expander("➕ 添加交易", expanded=False):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            symbol = st.text_input("标的代码", placeholder="如 AAPL").upper()
+        with col2:
+            action = st.selectbox(
+                "操作", 
+                ["BUY", "SELL", "STO (卖Put)", "BTC (买Put平仓)", "STC (卖Call)", "BTC (买Call平仓)", "ASSIGNMENT", "DIVIDEND"]
+            )
+        with col3:
+            date_str = st.date_input("日期", value=datetime.now().date())
+        
+        col4, col5, col6 = st.columns(3)
+        with col4:
+            quantity = st.number_input("数量(股/张)", value=100)
+        with col5:
+            price = st.number_input("价格/权利金", value=100.0)
+        with col6:
+            fees = st.number_input("手续费", value=0.0)
+        
+        col7, col8 = st.columns(2)
+        with col7:
+            currency = st.selectbox("币种", ["USD", "CNY", "HKD"])
+        with col8:
+            note = st.text_input("备注（可选）")
+        
+        if st.button("保存"):
+            # 简化 action
+            action_simple = action.split()[0]
+            add_transaction(
+                datetime_str=date_str.strftime('%Y-%m-%d'),
+                action=action_simple,
+                symbol=symbol,
+                quantity=quantity,
+                price=price,
+                fees=fees,
+                currency=currency,
+                category='投资',
+                note=note
+            )
+            st.success("✅ 已保存！")
+            st.rerun()
+    
+    # 获取交易
+    tx = get_transactions(category='投资', limit=200)
+    
+    if tx:
+        df = pd.DataFrame(tx)
+        df['date'] = pd.to_datetime(df['datetime'])
+        df['month'] = df['date'].dt.strftime('%Y-%m')
+        df['amount_rmb'] = df['price'] * df['quantity'] * (usd_to_rmb if df['currency'] == 'USD' else 7.8 if df['currency'] == 'HKD' else 1)
+        
+        # 筛选
+        col_f1, col_f2 = st.columns(2)
+        with col_f1:
+            symbol_filter = st.selectbox("筛选标的", ["全部"] + sorted(df['symbol'].dropna().unique().tolist()))
+        with col_f2:
+            action_filter = st.selectbox("筛选操作", ["全部"] + list(df['action'].unique()))
+        
+        filtered = df.copy()
+        if symbol_filter != "全部":
+            filtered = filtered[filtered['symbol'] == symbol_filter]
+        if action_filter != "全部":
+            filtered = filtered[filtered['action'] == action_filter]
+        
+        # 统计
+        total_cost = filtered[filtered['action'].isin(['BUY', 'STO'])]['amount_rmb'].sum()
+        total_sold = filtered[filtered['action'].isin(['SELL', 'STC', 'BTC', 'ASSIGNMENT'])]['amount_rmb'].sum()
+        total_fees = filtered['fees'].sum() * usd_to_rmb
+        
+        col_s1, col_s2, col_s3 = st.columns(3)
+        col_s1.metric("💵 总买入/开仓", f"¥{total_cost:,.0f}")
+        col_s2.metric("💴 总卖出/平仓", f"¥{total_sold:,.0f}")
+        col_s3.metric("💸 手续费总计", f"¥{total_fees:,.0f}")
+        
+        # 交易明细表
+        st.subheader("📋 交易明细")
+        
+        display_df = filtered[['date', 'symbol', 'action', 'quantity', 'price', 'fees', 'currency', 'note']].copy()
+        display_df['date'] = display_df['date'].dt.strftime('%Y-%m-%d')
+        display_df['金额_RMB'] = display_df['quantity'] * display_df['price'] * (usd_to_rmb if display_df['currency'] == 'USD' else 7.8 if display_df['currency'] == 'HKD' else 1)
+        
+        d = display_df[['date', 'symbol', 'action', 'quantity', 'price', 'fees', 'currency', '金额_RMB']].copy()
+        d.columns = ['日期', '标的', '操作', '数量', '单价', '手续费', '币种', '金额(RMB)']
+        st.dataframe(d, use_container_width=True)
+
+
 def show_settings():
     """设置"""
     st.title("⚙️ 设置")
@@ -595,30 +760,33 @@ def main():
         st.title("💰 财富追踪器")
         st.markdown("---")
         
-        page = st.selectbox(
-            "导航",
-            ["📊 总览", "📅 快照", "📆 年度", "💸 支出", "📈 投资组合", "🎯 期权车轮", "⚙️ 设置"]
-        )
+        # 模块 1：资产管理
+        with st.expander("🏠 模块1：个人资产管理", expanded=True):
+            page1 = st.radio("选择页面", ["📊 总览", "📅 快照", "📆 年度", "💸 支出/收入"])
+        
+        # 模块 2：投资追踪  
+        with st.expander("📈 模块2：投资追踪", expanded=True):
+            page2 = st.radio("选择", ["📈 持仓", "📝 交易日志", "🎯 期权车轮"], key="page2")
         
         st.markdown("---")
         st.markdown("**快捷链接**")
         st.markdown("- [GitHub](https://github.com/kikojay/option-go)")
     
     # 路由
-    if page == "📊 总览":
+    if page1 == "📊 总览":
         show_overview()
-    elif page == "📅 快照":
+    elif page1 == "📅 快照":
         show_snapshots()
-    elif page == "📆 年度":
+    elif page1 == "📆 年度":
         show_yearly_summary()
-    elif page == "💸 支出":
+    elif page1 == "💸 支出/收入":
         show_expense_tracker()
-    elif page == "📈 投资组合":
+    elif page2 == "📈 持仓":
         show_portfolio()
-    elif page == "🎯 期权车轮":
+    elif page2 == "📝 交易日志":
+        show_trading_log()
+    elif page2 == "🎯 期权车轮":
         show_wheel()
-    elif page == "⚙️ 设置":
-        show_settings()
 
 
 if __name__ == "__main__":
