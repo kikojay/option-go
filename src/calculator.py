@@ -16,26 +16,36 @@ class WheelCalculator:
     def calculate_adjusted_cost_basis(self, symbol: str) -> Dict:
         """
         计算调整后成本基准
-        公式：(股票买入总成本 - 所有收取的权利金) / 持股数量
+        公式：(股票买入总成本 - 权利金总收入 + 手续费总支出) / 持股数量
+
+        注意：
+        - 权利金是每股价格 × 100（存储为 amount，负数表示收入）
+        - 手续费是固定金额（存储为 fees，正数表示支出）
+        - 权利金减少成本，手续费增加成本
         """
         tx = [t for t in self.transactions if t.symbol == symbol]
 
-        # 股票买入成本
+        # 股票买入成本（负数，支出）
         stock_buy = sum(
             t.amount for t in tx
             if t.type == "stock" and t.subtype in ["buy", "assignment"]
         )
 
-        # 卖出股票/被买走
+        # 卖出股票收入（正数）
         stock_sell = sum(
             t.amount for t in tx
             if t.type == "stock" and t.subtype in ["sell", "called_away"]
         )
 
-        # 收取的权利金
+        # 收取的权利金（负数，表示收入）
         premiums_collected = sum(
             t.amount for t in tx
             if t.subtype in ["sell_put", "sell_call"]
+        )
+
+        # 手续费支出（正数）
+        fees_paid = sum(
+            t.fees for t in tx
         )
 
         # 当前持仓
@@ -57,17 +67,21 @@ class WheelCalculator:
                 "cost_basis": 0
             }
 
-        # 调整后成本
-        net_stock_cost = stock_buy - stock_sell - premiums_collected
-        adjusted_cost = net_stock_cost / current_shares
+        # 调整后成本（每股）
+        # 公式：(股票买入成本 + 权利金收入 + 手续费) / 持仓数量
+        # 股票买入是负数（支出），取绝对值：-stock_buy
+        # 权利金是负数（收入），直接加：+premiums_collected
+        # 手续费是正数（支出），直接加：+fees_paid
+        net_cost = -stock_buy + premiums_collected + fees_paid
+        adjusted_cost = net_cost / current_shares
 
         return {
             "current_shares": current_shares,
             "adjusted_cost": adjusted_cost,
             "total_premiums": premiums_collected,
-            "cost_basis": net_stock_cost,
-            "shares_bought": shares_bought,
-            "shares_sold": shares_sold
+            "cost_basis": net_cost,
+            "premiums_per_share": -premiums_collected / current_shares,
+            "fees_per_share": fees_paid / current_shares
         }
 
     def calculate_realized_pnl(self, symbol: str = None) -> float:
