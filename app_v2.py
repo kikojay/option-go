@@ -581,65 +581,124 @@ def show_portfolio():
 
 
 def show_wheel():
-    """期权车轮"""
+    """期权车轮 - 自动从交易日志抓取"""
     st.title("🎯 期权车轮 Options Wheel")
+    st.caption("自动从交易日志抓取所有期权交易，按标的分组")
     
-    strategies = get_strategies(status='active')
-    
-    # 创建策略
-    with st.expander("➕ 创建策略", expanded=False):
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            name = st.text_input("策略名称")
-        with col2:
-            symbol = st.text_input("标的代码").upper()
-        with col3:
-            strategy_type = st.selectbox("类型", ["wheel", "income", "speculation"])
-        
-        if st.button("创建"):
-            from src.database_v2 import create_strategy
-            create_strategy(name, strategy_type, symbol)
-            st.success("✅ 已创建！")
-            st.rerun()
-    
-    # 显示策略
     rates = fetch_exchange_rates()
     usd_to_rmb = rates['USD']['rmb']
     
-    for s in strategies:
-        st.markdown(f"### 🎯 {s['name']} ({s['symbol']})")
-        st.caption(f"类型: {s['type']} | 状态: {s['status']}")
+    # 获取所有期权交易
+    tx = get_transactions(category='投资', limit=500)
+    
+    if not tx:
+        st.info("暂无期权交易记录，去📝 交易日志添加吧！")
+        return
+    
+    # 筛选期权交易（STO, BTC, STC）
+    option_tx = [t for t in tx if t['action'] in ['STO', 'STC', 'BTC']]
+    
+    if not option_tx:
+        st.info("暂无期权交易")
+        return
+    
+    # 按标的分组
+    option_df = pd.DataFrame(option_tx)
+    option_df['date'] = pd.to_datetime(option_df['datetime'])
+    symbols = sorted(option_df['symbol'].dropna().unique())
+    
+    if not symbols:
+        st.info("暂无期权交易")
+        return
+    
+    # 选择查看的标的
+    selected_symbol = st.selectbox("选择标的", symbols)
+    
+    # 该标的的期权交易
+    symbol_tx = option_df[option_df['symbol'] == selected_symbol].sort_values('date')
+    
+    if symbol_tx.empty:
+        return
+    
+    # 计算指标
+    sto_tx = symbol_tx[symbol_tx['action'] == 'STO']  # 卖出开仓
+    btc_tx = symbol_tx[symbol_tx['action'].isin(['STC', 'BTC'])]  # 买回平仓
+    
+    total_premium_received = (sto_tx['quantity'] * sto_tx['price']).sum()  # 收到的权利金
+    total_premium_paid = (btc_tx['quantity'] * btc_tx['price']).sum()  # 付出的权利金
+    net_premium = total_premium_received - total_premium_paid
+    
+    # 当前持仓
+    current_short_put = symbol_tx[symbol_tx['action'] == 'STO']['quantity'].sum()
+    current_short_call = 0  # 需要额外逻辑
+    
+    # 指标卡片
+    st.markdown(f"### 📊 {selected_symbol} 期权概览")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("💵 累计权利金收入", f"${total_premium_received:,.2f}")
+    col2.metric("💸 累计权利金支出", f"${total_premium_paid:,.2f}")
+    col3.metric("📈 净权利金", f"${net_premium:,.2f}", delta=f"${net_premium:,.2f}")
+    col4.metric("📉 当前空头Put", f"{int(current_short_put)}张")
+    
+    # 收益图表
+    col_left, col_right = st.columns(2)
+    
+    with col_left:
+        st.subheader("📈 权利金流向")
+        monthly = symbol_tx.groupby(symbol_tx['date'].dt.strftime('%Y-%m'))['price'].sum()
+        if not monthly.empty:
+            fig = go.Figure(data=[go.Bar(
+                x=monthly.index,
+                y=monthly.values,
+                marker_color=['#00E5FF' if v > 0 else '#FF6B6B' for v in monthly.values]
+            )])
+            fig.update_layout(template="plotly_dark", height=300)
+            st.plotly_chart(fig, use_container_width=True)
+    
+    with col_right:
+        st.subheader("📊 操作类型分布")
+        action_counts = symbol_tx['action'].value_counts()
+        fig2 = go.Figure(data=[go.Pie(
+            labels=action_counts.index,
+            values=action_counts.values,
+            hole=0.4
+        )])
+        fig2.update_layout(template="plotly_dark", height=300)
+        st.plotly_chart(fig2, use_container_width=True)
+    
+    # 交易明细表
+    st.subheader("📋 期权交易明细")
+    
+    display_df = symbol_tx[['datetime', 'action', 'quantity', 'price', 'fees']].copy()
+    display_df['date'] = pd.to_datetime(display_df['datetime']).dt.strftime('%Y-%m-%d')
+    display_df['权利金_RMB'] = display_df['quantity'] * display_df['price'] * usd_to_rmb
+    display_df['操作'] = display_df['action'].map({
+        'STO': '卖出Put (开仓)',
+        'STC': '买回Put (平仓)',
+        'BTC': '买回 (平仓)'
+    })
+    
+    d = display_df[['date', '操作', 'quantity', 'price', 'fees', '权利金_RMB']].copy()
+    d.columns = ['日期', '操作', '张数', '权利金(USD)', '手续费', '权利金(RMB)']
+    
+    st.dataframe(d.style.format({
+        '权利金(USD)': '${:,.2f}',
+        '手续费': '${:,.2f}',
+        '权利金(RMB)': '¥{:,.2f}'
+    }), use_container_width=True)
+    
+    # 实时价格说明
+    with st.expander("💡 关于实时价格"):
+        st.markdown("""
+        **获取实时价格的方式：**
         
-        # 获取该标的交易
-        tx = get_transactions(symbol=s['symbol'], limit=50)
+        1. **IBKR API** - 需要IBKR账户，支持实时价格
+        2. **yfinance** - 免费，延迟15分钟
+        3. **券商CSV导入** - 手动导出持仓报告
         
-        if tx:
-            # 计算累计权利金
-            premiums = sum(
-                t['quantity'] * t['price'] 
-                for t in tx 
-                if t['action'] in ['STO', 'BTC']
-            )
-            premiums_rmb = premiums * usd_to_rmb
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                st.metric("💵 累计权利金 (USD)", f"${premiums:,.2f}")
-            with col2:
-                st.metric("💴 累计权利金 (RMB)", f"¥{premiums_rmb:,.2f}")
-            
-            # 交易明细
-            df = pd.DataFrame(tx)
-            df['date'] = pd.to_datetime(df['datetime']).dt.strftime('%Y-%m-%d')
-            df['权利金_RMB'] = df['quantity'] * df['price'] * usd_to_rmb
-            
-            display_df = df[['date', 'action', 'quantity', 'price', '权利金_RMB']].copy()
-            display_df.columns = ['日期', '操作', '张数', '权利金(USD)', '权利金(RMB)']
-            
-            st.dataframe(display_df.style.format({
-                '权利金(USD)': '${:,.2f}',
-                '权利金(RMB)': '¥{:,.2f}'
-            }), use_container_width=True)
+        如需启用实时价格，请提供IBKR API凭证或上传CSV文件。
+        """)
 
 
 def show_trading_log():
@@ -760,17 +819,37 @@ def main():
         st.title("💰 财富追踪器")
         st.markdown("---")
         
-        # 模块 1：资产管理
-        with st.expander("🏠 模块1：个人资产管理", expanded=True):
-            page1 = st.radio("选择页面", ["📊 总览", "📅 快照", "📆 年度", "💸 支出/收入"])
-        
-        # 模块 2：投资追踪  
-        with st.expander("📈 模块2：投资追踪", expanded=True):
-            page2 = st.radio("选择", ["📈 持仓", "📝 交易日志", "🎯 期权车轮"], key="page2")
+        # 模块 1：个人资产管理
+        st.subheader("🏠 模块1：个人资产管理")
+        page1 = st.selectbox(
+            "选择子页面",
+            ["📊 总览", "📅 快照", "📆 年度", "💸 支出/收入"],
+            key="page1"
+        )
         
         st.markdown("---")
-        st.markdown("**快捷链接**")
-        st.markdown("- [GitHub](https://github.com/kikojay/option-go)")
+        
+        # 模块 2：投资追踪
+        st.subheader("📈 模块2：投资追踪")
+        page2 = st.selectbox(
+            "选择子页面",
+            ["📈 持仓", "📝 交易日志", "🎯 期权车轮"],
+            key="page2"
+        )
+        
+        st.markdown("---")
+        
+        # 设置（单独放）
+        st.subheader("⚙️ 设置")
+        page3 = st.selectbox(
+            "设置",
+            ["⚙️ 系统设置"],
+            key="page3"
+        )
+        
+        st.markdown("---")
+        st.markdown("**GitHub**")
+        st.markdown("- [项目地址](https://github.com/kikojay/option-go)")
     
     # 路由
     if page1 == "📊 总览":
@@ -787,6 +866,8 @@ def main():
         show_trading_log()
     elif page2 == "🎯 期权车轮":
         show_wheel()
+    elif page3 == "⚙️ 系统设置":
+        show_settings()
 
 
 if __name__ == "__main__":
