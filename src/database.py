@@ -64,6 +64,7 @@ def init_database():
             note TEXT,
             strike_price REAL,
             expiration_date TEXT,
+            option_direction INTEGER,  -- +1=多头, -1=空头
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (account_id) REFERENCES accounts(id),
             FOREIGN KEY (category_id) REFERENCES account_categories(id)

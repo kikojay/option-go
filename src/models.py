@@ -44,14 +44,16 @@ class Transaction:
     amount: float  # 总金额（正数表示支出/买入，负数表示收入/卖出）
     symbol: Optional[str] = None  # 股票代码
     account_id: Optional[int] = None
-    quantity: Optional[int] = None  # 股数
-    price: Optional[float] = None  # 单价（股票买入价 或 期权权利金每股）
-    fees: float = 0
+    quantity: Optional[int] = None  # 股数或期权张数
+    price: Optional[float] = None  # 单价（股票）或权利金每股（期权）
+    fees: float = 0  # 手续费
     category_id: Optional[int] = None
     note: Optional[str] = None
     # 期权相关字段
     strike_price: Optional[float] = None  # 行权价
     expiration_date: Optional[str] = None  # 到期日 YYYY-MM-DD
+    # 期权仓位方向 (+1=多头, -1=空头)
+    option_direction: Optional[int] = None  # +1 买入, -1 卖出
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
 
 
