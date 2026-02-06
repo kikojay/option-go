@@ -89,10 +89,13 @@ def show_overview():
     
     # 获取汇率
     rates = fetch_exchange_rates()
+    usd_to_rmb = rates['USD']['rmb']
+    
+    # 显示当前汇率
+    st.info(f"💱 当前汇率: 1 USD = ¥{usd_to_rmb:.2f} CNY | 1 HKD = ¥{rates['HKD']['rmb']:.2f} CNY")
     
     # 获取数据
     accounts = get_all_accounts()
-    snapshot = get_latest_snapshot()
     portfolio = get_portfolio_summary()
     
     # 计算总资产
@@ -100,20 +103,29 @@ def show_overview():
     total_cny = sum(a['balance'] for a in accounts if a['currency'] == 'CNY')
     total_hkd = sum(a['balance'] for a in accounts if a['currency'] == 'HKD')
     
-    total_rmb = total_usd * rates['USD']['rmb'] + total_cny + total_hkd * rates['HKD']['rmb']
+    total_rmb = total_usd * usd_to_rmb + total_cny + total_hkd * rates['HKD']['rmb']
     
-    # 顶部指标
-    col1, col2, col3, col4 = st.columns(4)
+    # 顶部指标（双货币）
+    col1, col2 = st.columns(2)
     with col1:
-        st.metric("💰 总资产 (RMB)", f"¥{total_rmb:,.0f}")
+        st.subheader("💰 总资产")
+        c1, c2 = st.columns(2)
+        c1.metric("美元 (USD)", f"${total_usd:,.0f}")
+        c2.metric("人民币 (RMB)", f"¥{total_rmb:,.0f}")
+    
     with col2:
-        portfolio_value = portfolio['total_value']
-        st.metric("📈 投资组合", f"${portfolio_value:,.0f}")
+        st.subheader("📈 投资组合")
+        c3, c4 = st.columns(2)
+        c3.metric("市值 (USD)", f"${portfolio['total_value']:,.0f}")
+        c4.metric("市值 (RMB)", f"¥{portfolio['total_value'] * usd_to_rmb:,.0f}")
+    
+    col3, col4 = st.columns(2)
     with col3:
         unrealized = portfolio['total_unrealized']
-        st.metric("📉 浮动盈亏", f"${unrealized:,.0f}", delta=f"${unrealized:,.0f}")
+        st.metric("📉 浮动盈亏 (USD)", f"${unrealized:,.0f}", delta=f"${unrealized:,.0f}")
     with col4:
-        st.metric("💵 USD 资产", f"${total_usd:,.0f}")
+        unrealized_rmb = unrealized * usd_to_rmb
+        st.metric("📊 浮动盈亏 (RMB)", f"¥{unrealized_rmb:,.0f}", delta=f"¥{unrealized_rmb:,.0f}")
     
     # 资产配置饼图
     col_left, col_right = st.columns(2)
@@ -155,17 +167,33 @@ def show_overview():
             st.plotly_chart(fig, use_container_width=True)
     
     # 账户详情
-    st.subheader("🏦 账户详情")
+    st.subheader("🏦 账户详情 (双货币显示)")
     if accounts:
         df = pd.DataFrame(accounts)
-        df['balance_rmb'] = df.apply(
+        df['余额_RMB'] = df.apply(
             lambda x: x['balance'] * rates[x['currency']]['rmb'] if x['currency'] != 'CNY' else x['balance'],
             axis=1
         )
-        st.dataframe(
-            df[['name', 'category', 'currency', 'balance', 'balance_rmb']],
-            use_container_width=True
+        # 添加人民币符号
+        df['余额_显示'] = df.apply(
+            lambda x: f"${x['balance']:,.0f}" if x['currency'] == 'USD' else f"¥{x['balance']:,.0f}" if x['currency'] == 'CNY' else f"${x['balance']:,.0f}",
+            axis=1
         )
+        
+        display_df = df[['name', 'category', 'currency', 'balance', '余额_RMB']].copy()
+        display_df.columns = ['账户', '类别', '币种', '原币余额', '折合(RMB)']
+        
+        st.dataframe(display_df.style.format({
+            '折合(RMB)': '¥{:,.0f}'
+        }), use_container_width=True)
+        
+        # 汇总
+        total_orig = sum(a['balance'] for a in accounts)
+        total_converted = sum(a['balance'] * rates[a['currency']]['rmb'] for a in accounts)
+        
+        col_acc1, col_acc2 = st.columns(2)
+        col_acc1.metric("原币总计", f"${total_orig:,.0f}")
+        col_acc2.metric("折合人民币总计", f"¥{total_converted:,.0f}")
 
 
 def show_snapshots():
@@ -369,31 +397,79 @@ def show_portfolio():
     """投资组合"""
     st.title("📈 投资组合 Portfolio")
     
+    # 获取汇率
+    rates = fetch_exchange_rates()
+    usd_to_rmb = rates['USD']['rmb']
+    cny_to_rmb = 1.0
+    
+    # 显示当前汇率
+    st.info(f"💱 当前汇率: 1 USD = ¥{usd_to_rmb:.2f} CNY")
+    
     # 持仓汇总
     portfolio = get_portfolio_summary()
     
+    # 双货币统计
     col1, col2, col3 = st.columns(3)
-    col1.metric("总市值", f"${portfolio['total_value']:,.2f}")
-    col2.metric("总成本", f"${portfolio['total_cost']:,.2f}")
-    col3.metric("浮动盈亏", f"${portfolio['total_unrealized']:,.2f}", 
+    col1.metric("💵 总市值 (USD)", f"${portfolio['total_value']:,.2f}")
+    col2.metric("💴 总市值 (RMB)", f"¥{portfolio['total_value'] * usd_to_rmb:,.2f}")
+    col3.metric("📊 浮动盈亏 (USD)", f"${portfolio['total_unrealized']:,.2f}", 
                 delta=f"${portfolio['total_unrealized']:,.2f}")
     
-    # 持仓表格
+    # 双货币详细
+    col4, col5, col6 = st.columns(3)
+    col4.metric("💵 总成本 (USD)", f"${portfolio['total_cost']:,.2f}")
+    col5.metric("💴 总成本 (RMB)", f"¥{portfolio['total_cost'] * usd_to_rmb:,.2f}")
+    col6.metric("📊 浮动盈亏 (RMB)", f"¥{portfolio['total_unrealized'] * usd_to_rmb:,.2f}")
+    
+    # 持仓表格（双货币）
     if portfolio['holdings']:
         df = pd.DataFrame(portfolio['holdings'])
         
-        # 添加颜色
+        # 添加人民币列
+        df['市值_RMB'] = df['market_value'] * usd_to_rmb
+        df['成本_RMB'] = df['cost_basis'] * usd_to_rmb
+        df['盈亏_RMB'] = df['unrealized_pnl'] * usd_to_rmb
+        
+        # 颜色
         df['color'] = ['#00E5FF' if v > 0 else '#FF6B6B' for v in df['unrealized_pnl']]
         
-        fig = go.Figure(data=[go.Bar(
-            x=df['symbol'],
-            y=df['market_value'],
-            marker_color=df['color']
-        )])
-        fig.update_layout(template="plotly_dark", xaxis_title="标的", yaxis_title="市值")
-        st.plotly_chart(fig, use_container_width=True)
+        # 图表
+        col_left, col_right = st.columns(2)
         
-        st.dataframe(df, use_container_width=True)
+        with col_left:
+            st.subheader("📊 市值分布 (USD)")
+            fig = go.Figure(data=[go.Bar(
+                x=df['symbol'],
+                y=df['market_value'],
+                marker_color=df['color']
+            )])
+            fig.update_layout(template="plotly_dark", xaxis_title="标的", yaxis_title="市值 ($)")
+            st.plotly_chart(fig, use_container_width=True)
+        
+        with col_right:
+            st.subheader("📊 市值分布 (RMB)")
+            fig2 = go.Figure(data=[go.Bar(
+                x=df['symbol'],
+                y=df['市值_RMB'],
+                marker_color=df['color']
+            )])
+            fig2.update_layout(template="plotly_dark", xaxis_title="标的", yaxis_title="市值 (¥)")
+            st.plotly_chart(fig2, use_container_width=True)
+        
+        # 详细表格
+        st.subheader("📋 持仓明细")
+        
+        display_df = df[['symbol', 'shares', 'avg_cost', 'cost_basis', 'market_value', 
+                         '市值_RMB', 'unrealized_pnl', '盈亏_RMB']].copy()
+        display_df.columns = ['标的', '股数', '均价', '成本(USD)', '市值(USD)', '市值(RMB)', '盈亏(USD)', '盈亏(RMB)']
+        st.dataframe(display_df.style.format({
+            '均价': '${:.2f}',
+            '成本(USD)': '${:,.2f}',
+            '市值(USD)': '${:,.2f}',
+            '市值(RMB)': '¥{:,.2f}',
+            '盈亏(USD)': '${:,.2f}',
+            '盈亏(RMB)': '¥{:,.2f}'
+        }), use_container_width=True)
     
     # 添加交易
     with st.expander("➕ 记录交易", expanded=False):
@@ -458,8 +534,11 @@ def show_wheel():
             st.rerun()
     
     # 显示策略
+    rates = fetch_exchange_rates()
+    usd_to_rmb = rates['USD']['rmb']
+    
     for s in strategies:
-        st.markdown(f"### {s['name']} ({s['symbol']})")
+        st.markdown(f"### 🎯 {s['name']} ({s['symbol']})")
         st.caption(f"类型: {s['type']} | 状态: {s['status']}")
         
         # 获取该标的交易
@@ -472,11 +551,26 @@ def show_wheel():
                 for t in tx 
                 if t['action'] in ['STO', 'BTC']
             )
+            premiums_rmb = premiums * usd_to_rmb
             
-            col1, col2, col3 = st.columns(3)
-            col1.metric("累计权利金", f"${premiums:,.2f}")
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("💵 累计权利金 (USD)", f"${premiums:,.2f}")
+            with col2:
+                st.metric("💴 累计权利金 (RMB)", f"¥{premiums_rmb:,.2f}")
             
-            st.dataframe(pd.DataFrame(tx)[['date', 'action', 'quantity', 'price']], use_container_width=True)
+            # 交易明细
+            df = pd.DataFrame(tx)
+            df['date'] = pd.to_datetime(df['datetime']).dt.strftime('%Y-%m-%d')
+            df['权利金_RMB'] = df['quantity'] * df['price'] * usd_to_rmb
+            
+            display_df = df[['date', 'action', 'quantity', 'price', '权利金_RMB']].copy()
+            display_df.columns = ['日期', '操作', '张数', '权利金(USD)', '权利金(RMB)']
+            
+            st.dataframe(display_df.style.format({
+                '权利金(USD)': '${:,.2f}',
+                '权利金(RMB)': '¥{:,.2f}'
+            }), use_container_width=True)
 
 
 def show_settings():
