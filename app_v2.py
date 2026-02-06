@@ -727,7 +727,8 @@ def main():
         page1 = st.selectbox(
             "选择子页面",
             ["📊 总览", "📅 快照", "📆 年度", "💸 支出/收入"],
-            key="page1"
+            key="page1",
+            index=0
         )
         
         st.markdown("---")
@@ -737,7 +738,8 @@ def main():
         page2 = st.selectbox(
             "选择子页面",
             ["📈 持仓", "📝 交易日志", "🎯 期权车轮"],
-            key="page2"
+            key="page2",
+            index=0
         )
         
         st.markdown("---")
@@ -747,28 +749,45 @@ def main():
         page3 = st.selectbox(
             "设置",
             ["⚙️ 系统设置"],
-            key="page3"
+            key="page3",
+            index=0
         )
         
         st.markdown("---")
         st.markdown("**GitHub**: [项目地址](https://github.com/kikojay/option-go)")
     
-    # 路由
-    if page1 == "📊 总览":
+    # 路由 - 使用 session_state 跟踪当前显示的模块
+    if 'current_module' not in st.session_state:
+        st.session_state.current_module = 'module1'
+        st.session_state.current_page = '📊 总览'
+    
+    # 检测用户选择了哪个模块
+    if page1 != "📊 总览" or st.session_state.current_module == 'module1':
+        st.session_state.current_module = 'module1'
+        st.session_state.current_page = page1
+    elif page2 != "📈 持仓" or st.session_state.current_module == 'module2':
+        st.session_state.current_module = 'module2'
+        st.session_state.current_page = page2
+    elif page3 != "⚙️ 系统设置" or st.session_state.current_module == 'module3':
+        st.session_state.current_module = 'module3'
+        st.session_state.current_page = page3
+    
+    # 根据当前页面显示
+    if st.session_state.current_page == "📊 总览":
         show_overview()
-    elif page1 == "📅 快照":
+    elif st.session_state.current_page == "📅 快照":
         show_snapshots()
-    elif page1 == "📆 年度":
+    elif st.session_state.current_page == "📆 年度":
         show_yearly_summary()
-    elif page1 == "💸 支出/收入":
+    elif st.session_state.current_page == "💸 支出/收入":
         show_expense_tracker()
-    elif page2 == "📈 持仓":
+    elif st.session_state.current_page == "📈 持仓":
         show_portfolio()
-    elif page2 == "📝 交易日志":
+    elif st.session_state.current_page == "📝 交易日志":
         show_trading_log()
-    elif page2 == "🎯 期权车轮":
+    elif st.session_state.current_page == "🎯 期权车轮":
         show_wheel()
-    elif page3 == "⚙️ 系统设置":
+    elif st.session_state.current_page == "⚙️ 系统设置":
         show_settings()
 
 
