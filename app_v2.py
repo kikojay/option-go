@@ -557,7 +557,17 @@ def show_portfolio():
         
         st.markdown(f"#### {category_map.get(cat, cat)}")
         
-        display_df = cat_holdings[['symbol', 'shares', 'avg_cost', 'market_price', 'cost_basis', 'market_value', '市值_RMB', 'unrealized_pnl', '盈亏_RMB', '盈亏率']].copy()
+        # 检查是否有现价，如果没有则用成本均价
+        if 'market_price' in cat_holdings.columns:
+            current_price = cat_holdings['market_price']
+        else:
+            current_price = cat_holdings['avg_cost']  # 用买入均价作为参考
+        
+        display_df = cat_holdings[['symbol', 'shares', 'avg_cost', 'cost_basis', 'market_value', '市值_RMB', 'unrealized_pnl', '盈亏_RMB', '盈亏率']].copy()
+        
+        # 添加现价列
+        display_df['现价'] = current_price
+        display_df = display_df[['symbol', 'shares', 'avg_cost', '现价', 'cost_basis', 'market_value', '市值_RMB', 'unrealized_pnl', '盈亏_RMB', '盈亏率']]
         display_df.columns = ['标的', '股数', '买入均价', '现价', '成本(USD)', '市值(USD)', '市值(RMB)', '盈亏(USD)', '盈亏(RMB)', '盈亏率%']
         
         st.dataframe(display_df.style.format({
