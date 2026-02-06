@@ -208,6 +208,66 @@ def show_campaigns():
     """Campaign 管理"""
     st.title("📈 Campaign 管理")
 
+    # 快速添加交易（支持任意股票）
+    with st.expander("⚡ 快速添加交易（任意股票）", expanded=False):
+        with st.form("quick_add"):
+            col_q1, col_q2, col_q3 = st.columns(3)
+            with col_q1:
+                q_symbol = st.text_input("股票代码", placeholder="如 AAPL").upper()
+            with col_q2:
+                q_type = st.selectbox(
+                    "类型",
+                    ["买入股票", "卖出股票", "卖Put", "买Put平仓", "卖Call", "买Call平仓", "接盘", "被买走"]
+                )
+            with col_q3:
+                q_date = st.date_input("日期", value=datetime.now().date())
+
+            col_q4, col_q5, col_q6 = st.columns(3)
+            with col_q4:
+                q_price = st.number_input("价格($)", min_value=0.01, value=100.0, step=0.01)
+            with col_q5:
+                q_quantity = st.number_input("数量(股)", min_value=1, value=100)
+            with col_q6:
+                q_fees = st.number_input("手续费($)", min_value=0.0, value=0.0, step=0.01)
+
+            if st.form_submit_button("添加"):
+                if q_symbol:
+                    from src.database import add_transaction
+                    from src.models import Transaction, TransactionType
+
+                    type_map = {
+                        "买入股票": ("stock", "buy"),
+                        "卖出股票": ("stock", "sell"),
+                        "卖Put": ("option", "sell_put"),
+                        "买Put平仓": ("option", "buy_put"),
+                        "卖Call": ("option", "sell_call"),
+                        "买Call平仓": ("option", "buy_call"),
+                        "接盘": ("stock", "assignment"),
+                        "被买走": ("stock", "called_away"),
+                    }
+                    db_type, db_subtype = type_map[q_type]
+
+                    if db_type == "stock":
+                        amount = q_price * q_quantity * (-1 if db_subtype in ["buy", "assignment"] else 1)
+                    else:
+                        amount = q_price * q_quantity * (-1 if db_subtype.startswith("buy") else 1)
+
+                    tx = Transaction(
+                        type=TransactionType(db_type).value,
+                        subtype=db_subtype,
+                        date=q_date.strftime("%Y-%m-%d"),
+                        symbol=q_symbol,
+                        quantity=q_quantity,
+                        price=q_price,
+                        amount=amount,
+                        fees=q_fees
+                    )
+                    add_transaction(tx)
+                    st.success(f"✅ 已添加: {q_symbol} {q_type}")
+                    st.rerun()
+
+    st.divider()
+
     # 创建新 Campaign
     with st.expander("➕ 创建新 Campaign", expanded=False):
         col1, col2, col3 = st.columns(3)
@@ -216,7 +276,7 @@ def show_campaigns():
         with col2:
             target_shares = st.number_input("目标股数", min_value=1, value=100)
         with col3:
-            if st.button("创建"):
+            if st.button("创建 Campaign"):
                 if symbol:
                     create_campaign(symbol, target_shares)
                     st.success(f"✅ 已创建 {symbol} Campaign")
@@ -275,6 +335,69 @@ def show_campaigns():
                         st.info(f"⏱️ 预计还需 {weeks_data['weeks']:.1f} 周回本")
                     else:
                         st.info(weeks_data.get("message", ""))
+
+        # 添加交易记录
+        with st.expander(f"➕ 添加 {symbol} 交易", expanded=False):
+            with st.form(f"add_tx_{symbol}"):
+                col_tx1, col_tx2, col_tx3 = st.columns(3)
+                with col_tx1:
+                    tx_date = st.date_input("日期", value=datetime.now().date(), key=f"date_{symbol}")
+                with col_tx2:
+                    tx_type = st.selectbox(
+                        "类型",
+                        ["买入股票", "卖出股票", "卖Put", "买Put平仓", "卖Call", "买Call平仓", "接盘(被行权)", "被买走"],
+                        key=f"type_{symbol}"
+                    )
+                with col_tx3:
+                    tx_quantity = st.number_input("数量(股)", min_value=1, value=100, key=f"qty_{symbol}")
+
+                col_tx4, col_tx5, col_tx6 = st.columns(3)
+                with col_tx4:
+                    tx_price = st.number_input("价格($)", min_value=0.01, value=80.0, step=0.01, key=f"price_{symbol}")
+                with col_tx5:
+                    tx_fees = st.number_input("手续费($)", min_value=0.0, value=0.0, step=0.01, key=f"fees_{symbol}")
+                with col_tx6:
+                    tx_note = st.text_input("备注", placeholder="可选", key=f"note_{symbol}")
+
+                submitted = st.form_submit_button("添加记录")
+                if submitted:
+                    # 根据类型映射到数据库字段
+                    type_map = {
+                        "买入股票": ("stock", "buy"),
+                        "卖出股票": ("stock", "sell"),
+                        "卖Put": ("option", "sell_put"),
+                        "买Put平仓": ("option", "buy_put"),
+                        "卖Call": ("option", "sell_call"),
+                        "买Call平仓": ("option", "buy_call"),
+                        "接盘(被行权)": ("stock", "assignment"),
+                        "被买走": ("stock", "called_away"),
+                    }
+                    db_type, db_subtype = type_map[tx_type]
+
+                    # 计算总金额
+                    if db_type == "stock":
+                        amount = tx_price * tx_quantity * (-1 if db_subtype in ["buy", "assignment"] else 1)
+                    else:
+                        # 期权是每股价格 x 100股
+                        amount = tx_price * tx_quantity * (-1 if db_subtype.startswith("buy") else 1)
+
+                    from src.database import add_transaction
+                    from src.models import Transaction, TransactionType
+
+                    tx = Transaction(
+                        type=TransactionType(db_type).value,
+                        subtype=db_subtype,
+                        date=tx_date.strftime("%Y-%m-%d"),
+                        symbol=symbol,
+                        quantity=tx_quantity,
+                        price=tx_price,
+                        amount=amount,
+                        fees=tx_fees,
+                        note=tx_note
+                    )
+                    add_transaction(tx)
+                    st.success(f"✅ 已添加: {tx_type} {symbol}")
+                    st.rerun()
 
         # 交易历史
         tx = get_transactions({"symbol": symbol, "limit": 20})
