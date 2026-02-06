@@ -122,7 +122,7 @@ def plot_portfolio_allocation(holdings: Dict[str, Dict]) -> go.Figure:
         values=values,
         hole=0.4,
         marker=dict(colors=px.colors.qualitative.Set3)
-    ))])
+    )])
 
     fig.update_layout(
         title="Portfolio Allocation",

@@ -224,11 +224,18 @@ def show_campaigns():
 
             col_q4, col_q5, col_q6 = st.columns(3)
             with col_q4:
-                q_price = st.number_input("价格($)", min_value=0.01, value=100.0, step=0.01)
+                q_price = st.number_input("价格/权利金($)", min_value=0.01, value=100.0, step=0.01)
             with col_q5:
                 q_quantity = st.number_input("数量(股)", min_value=1, value=100)
             with col_q6:
                 q_fees = st.number_input("手续费($)", min_value=0.0, value=0.0, step=0.01)
+
+            # 期权特有字段
+            col_qopt1, col_qopt2 = st.columns(2)
+            with col_qopt1:
+                q_strike = st.number_input("行权价($)", min_value=0.01, value=100.0, step=0.5, help="期权行权价")
+            with col_qopt2:
+                q_expiry = st.date_input("到期日", value=None, help="期权到期日期")
 
             if st.form_submit_button("添加"):
                 if q_symbol:
@@ -260,10 +267,12 @@ def show_campaigns():
                         quantity=q_quantity,
                         price=q_price,
                         amount=amount,
-                        fees=q_fees
+                        fees=q_fees,
+                        strike_price=q_strike if db_type == "option" else None,
+                        expiration_date=str(q_expiry) if db_type == "option" and q_expiry else None
                     )
                     add_transaction(tx)
-                    st.success(f"✅ 已添加: {q_symbol} {q_type}")
+                    st.success(f"✅ 已添加: {q_symbol} {q_type} (行权价${q_strike})")
                     st.rerun()
 
     st.divider()
@@ -353,11 +362,18 @@ def show_campaigns():
 
                 col_tx4, col_tx5, col_tx6 = st.columns(3)
                 with col_tx4:
-                    tx_price = st.number_input("价格($)", min_value=0.01, value=80.0, step=0.01, key=f"price_{symbol}")
+                    tx_price = st.number_input("价格/权利金($)", min_value=0.01, value=80.0, step=0.01, key=f"price_{symbol}")
                 with col_tx5:
                     tx_fees = st.number_input("手续费($)", min_value=0.0, value=0.0, step=0.01, key=f"fees_{symbol}")
                 with col_tx6:
                     tx_note = st.text_input("备注", placeholder="可选", key=f"note_{symbol}")
+
+                # 期权特有字段
+                col_opt1, col_opt2 = st.columns(2)
+                with col_opt1:
+                    tx_strike = st.number_input("行权价($)", min_value=0.01, value=80.0, step=0.5, key=f"strike_{symbol}", help="期权行权价")
+                with col_opt2:
+                    tx_expiry = st.date_input("到期日", value=None, key=f"expiry_{symbol}", help="期权到期日期")
 
                 submitted = st.form_submit_button("添加记录")
                 if submitted:
@@ -393,10 +409,12 @@ def show_campaigns():
                         price=tx_price,
                         amount=amount,
                         fees=tx_fees,
-                        note=tx_note
+                        note=tx_note,
+                        strike_price=tx_strike if db_type == "option" else None,
+                        expiration_date=str(tx_expiry) if db_type == "option" and tx_expiry else None
                     )
                     add_transaction(tx)
-                    st.success(f"✅ 已添加: {tx_type} {symbol}")
+                    st.success(f"✅ 已添加: {tx_type} {symbol} (行权价${tx_strike}, 到期{tx_expiry})")
                     st.rerun()
 
         # 交易历史
@@ -405,8 +423,10 @@ def show_campaigns():
             with st.expander(f"📝 {symbol} 交易历史"):
                 df = pd.DataFrame(tx)
                 df["date"] = pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")
+                df["expiration"] = df["expiration_date"].apply(lambda x: str(x) if x else "-")
+                df["strike"] = df["strike_price"].apply(lambda x: f"${x:.2f}" if x else "-")
                 st.dataframe(
-                    df[["date", "subtype", "quantity", "price", "amount"]],
+                    df[["date", "subtype", "quantity", "price", "strike", "expiration", "amount"]],
                     use_container_width=True
                 )
 

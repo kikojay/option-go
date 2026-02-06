@@ -51,17 +51,19 @@ def init_database():
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS transactions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            type TEXT NOT NULL,  -- 'stock' | 'option' | 'expense' | 'income' | 'transfer'
-            subtype TEXT,  -- 'buy' | 'sell' | 'sell_put' | 'buy_put' | 'sell_call' | 'buy_call' | 'assignment' | 'called_away'
+            type TEXT NOT NULL,
+            subtype TEXT,
             date TIMESTAMP NOT NULL,
-            symbol TEXT,  -- 股票代码
+            symbol TEXT,
             account_id INTEGER,
             quantity INTEGER,
-            price REAL,  -- 单价
-            amount REAL NOT NULL,  -- 总金额
+            price REAL,
+            amount REAL NOT NULL,
             fees REAL DEFAULT 0,
             category_id INTEGER,
             note TEXT,
+            strike_price REAL,
+            expiration_date TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (account_id) REFERENCES accounts(id),
             FOREIGN KEY (category_id) REFERENCES account_categories(id)
@@ -162,11 +164,12 @@ def add_transaction(tx: Transaction) -> int:
     cursor = conn.cursor()
     cursor.execute("""
         INSERT INTO transactions 
-        (type, subtype, date, symbol, account_id, quantity, price, amount, fees, category_id, note)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (type, subtype, date, symbol, account_id, quantity, price, amount, fees, category_id, note, strike_price, expiration_date)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         tx.type, tx.subtype, tx.date, tx.symbol, tx.account_id,
-        tx.quantity, tx.price, tx.amount, tx.fees, tx.category_id, tx.note
+        tx.quantity, tx.price, tx.amount, tx.fees, tx.category_id, tx.note,
+        tx.strike_price, tx.expiration_date
     ))
     tx_id = cursor.lastrowid
     conn.commit()
@@ -203,7 +206,7 @@ def get_transactions(filters: dict = None) -> list:
             params.append(filters["end_date"])
 
     query += " ORDER BY t.date DESC LIMIT ?"
-    params.append(filters.get("limit", 100))
+    params.append(filters.get("limit", 100) if filters else 100)
 
     cursor.execute(query, params)
     rows = cursor.fetchall()
@@ -311,20 +314,21 @@ def get_portfolio_summary() -> dict:
         HAVING (shares_bought - shares_sold) > 0
     """)
 
-    holdings = []
+    holdings = {}
     for row in cursor.fetchall():
+        symbol = row["symbol"]
         shares = row["shares_bought"] - row["shares_sold"]
-        latest_price = get_latest_price(row["symbol"])
+        latest_price = get_latest_price(symbol)
         market_value = shares * latest_price if latest_price else 0
         unrealized_pnl = market_value - (row["total_cost"] - row["total_sold"] - row["put_premiums"] - row["call_premiums"])
 
-        holdings.append({
-            "symbol": row["symbol"],
+        holdings[symbol] = {
+            "symbol": symbol,
             "shares": shares,
             "avg_cost": (row["total_cost"] - row["total_sold"] - row["put_premiums"] - row["call_premiums"]) / shares if shares else 0,
             "market_value": market_value,
             "unrealized_pnl": unrealized_pnl
-        })
+        }
 
     # 总资产
     cursor.execute("""
@@ -336,11 +340,37 @@ def get_portfolio_summary() -> dict:
     """)
 
     assets = cursor.fetchone()
+
+    # 计算总盈亏
+    total_realized = 0
+    total_unrealized = 0
+    for h in holdings.values():
+        total_unrealized += h.get("unrealized_pnl", 0)
+    # Realized P&L 需要从交易记录计算
+    conn2 = get_connection()
+    cursor2 = conn2.cursor()
+    cursor2.execute("""
+        SELECT
+            SUM(CASE WHEN subtype IN ('sell_put', 'sell_call') THEN -amount ELSE 0 END) as option_pnl,
+            SUM(CASE WHEN subtype IN ('sell', 'called_away') THEN -amount ELSE 0 END) as stock_sell_pnl,
+            SUM(CASE WHEN subtype IN ('buy', 'assignment') THEN amount ELSE 0 END) as stock_buy_pnl,
+            SUM(fees) as total_fees
+        FROM transactions
+        WHERE type IN ('stock', 'option')
+    """)
+    pnl_row = cursor2.fetchone()
+    conn2.close()
+
+    total_realized = (pnl_row["option_pnl"] or 0) + (pnl_row["stock_sell_pnl"] or 0) - (pnl_row["stock_buy_pnl"] or 0) - (pnl_row["total_fees"] or 0)
+
     conn.close()
 
     return {
         "holdings": holdings,
         "total_assets": assets["total_assets"] or 0,
         "total_liabilities": assets["total_liabilities"] or 0,
-        "net_worth": (assets["total_assets"] or 0) - (assets["total_liabilities"] or 0)
+        "net_worth": (assets["total_assets"] or 0) - (assets["total_liabilities"] or 0),
+        "total_realized_pnl": total_realized,
+        "total_unrealized_pnl": total_unrealized,
+        "total_pnl": total_realized + total_unrealized
     }
