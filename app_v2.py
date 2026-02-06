@@ -403,52 +403,172 @@ def show_portfolio():
     st.info(f"💱 当前汇率: 1 USD = ¥{usd_to_rmb:.2f} CNY")
     
     portfolio = get_portfolio_summary()
+    holdings = portfolio.get('holdings', [])
     
-    col1, col2, col3 = st.columns(3)
-    col1.metric("💵 总市值 (USD)", f"${portfolio['total_value']:,.2f}")
-    col2.metric("💴 总市值 (RMB)", f"¥{portfolio['total_value'] * usd_to_rmb:,.2f}")
-    col3.metric("📊 浮动盈亏 (USD)", f"${portfolio['total_unrealized']:,.2f}", 
-                delta=f"${portfolio['total_unrealized']:,.2f}")
+    if not holdings:
+        st.info("暂无持仓数据")
+        return
     
-    if portfolio['holdings']:
-        df = pd.DataFrame(portfolio['holdings'])
-        df['市值_RMB'] = df['market_value'] * usd_to_rmb
-        df['成本_RMB'] = df['cost_basis'] * usd_to_rmb
-        df['盈亏_RMB'] = df['unrealized_pnl'] * usd_to_rmb
-        df['color'] = ['#00E5FF' if v > 0 else '#FF6B6B' for v in df['unrealized_pnl']]
-        
-        col_left, col_right = st.columns(2)
-        
-        with col_left:
-            st.subheader("📊 市值分布 (USD)")
-            fig = go.Figure(data=[go.Bar(
-                x=df['symbol'],
-                y=df['market_value'],
-                marker_color=df['color']
+    df = pd.DataFrame(holdings)
+    
+    # 资产分类映射
+    category_map = {
+        'CASH': '现金',
+        'INDEX': '指数基金',
+        'DIVIDEND': '分红股',
+        'BLUE': '蓝筹股',
+        'METALS': '贵金属',
+        'SMALL': '小盘'
+    }
+    
+    # 分配分类（如果没有则默认蓝筹）
+    if 'category' not in df.columns:
+        df['category'] = 'BLUE'
+    
+    # 计算各类资产
+    df['市值_RMB'] = df['market_value'] * usd_to_rmb
+    df['成本_RMB'] = df['cost_basis'] * usd_to_rmb
+    df['盈亏_RMB'] = df['unrealized_pnl'] * usd_to_rmb
+    df['盈亏率'] = df.apply(lambda x: (x['unrealized_pnl'] / x['cost_basis'] * 100) if x['cost_basis'] > 0 else 0, axis=1)
+    
+    # 按分类汇总
+    total_value = df['市值_RMB'].sum()
+    total_cost = df['成本_RMB'].sum()
+    total_pnl = df['盈亏_RMB'].sum()
+    total_return = (total_pnl / total_cost * 100) if total_cost > 0 else 0
+    
+    # 分类汇总
+    cat_summary = df.groupby('category').agg({
+        '市值_RMB': 'sum',
+        '成本_RMB': 'sum',
+        '盈亏_RMB': 'sum'
+    }).reset_index()
+    cat_summary['占比'] = cat_summary['市值_RMB'] / total_value * 100
+    cat_summary['收益率'] = cat_summary.apply(
+        lambda x: (x['盈亏_RMB'] / x['成本_RMB'] * 100) if x['成本_RMB'] > 0 else 0, axis=1
+    )
+    
+    # 分类映射中文
+    cat_summary['分类'] = cat_summary['category'].map(category_map)
+    
+    # 填充缺失分类
+    all_cats = ['CASH', 'INDEX', 'DIVIDEND', 'BLUE', 'METALS', 'SMALL']
+    for cat in all_cats:
+        if cat not in cat_summary['category'].values:
+            new_row = pd.DataFrame({'category': [cat], '分类': [category_map.get(cat, cat)], '市值_RMB': [0], '成本_RMB': [0], '盈亏_RMB': [0], '占比': [0], '收益率': [0]})
+            cat_summary = pd.concat([cat_summary, new_row], ignore_index=True)
+    
+    # 构建汇总表
+    st.markdown("### 📊 资产大类汇总")
+    
+    # 按用户要求的顺序排列
+    cat_order = ['CASH', 'INDEX', 'DIVIDEND', 'BLUE', 'METALS', 'SMALL']
+    cat_summary['sort'] = cat_summary['category'].apply(lambda x: cat_order.index(x) if x in cat_order else 99)
+    cat_summary = cat_summary.sort_values('sort').reset_index(drop=True)
+    
+    # 计算现金、指数基金、分红股、蓝筹股、贵金属、小盘的数值
+    def get_val(cat, col):
+        row = cat_summary[cat_summary['category'] == cat]
+        if not row.empty:
+            return row[col].values[0]
+        return 0
+    
+    cash = get_val('CASH', '市值_RMB')
+    index_fund = get_val('INDEX', '市值_RMB')
+    dividend = get_val('DIVIDEND', '市值_RMB')
+    blue_chip = get_val('BLUE', '市值_RMB')
+    metals = get_val('METALS', '市值_RMB')
+    small = get_val('SMALL', '市值_RMB')
+    
+    cash_pct = get_val('CASH', '占比')
+    index_pct = get_val('INDEX', '占比')
+    dividend_pct = get_val('DIVIDEND', '占比')
+    blue_pct = get_val('BLUE', '占比')
+    metals_pct = get_val('METALS', '占比')
+    small_pct = get_val('SMALL', '占比')
+    
+    cash_return = get_val('CASH', '收益率')
+    index_return = get_val('INDEX', '收益率')
+    dividend_return = get_val('DIVIDEND', '收益率')
+    blue_return = get_val('BLUE', '收益率')
+    metals_return = get_val('METALS', '收益率')
+    small_return = get_val('SMALL', '收益率')
+    
+    # 显示汇总表
+    summary_data = {
+        '日期': [datetime.now().strftime('%Y-%m-%d')],
+        '美元计价总数': [f"${total_value/usd_to_rmb:,.0f}"],
+        '现金': [f"¥{cash:,.0f}"],
+        '指数基金': [f"¥{index_fund:,.0f}"],
+        '分红股': [f"¥{dividend:,.0f}"],
+        '蓝筹股': [f"¥{blue_chip:,.0f}"],
+        '贵金属': [f"¥{metals:,.0f}"],
+        '小盘': [f"¥{small:,.0f}"],
+        '总数': [f"¥{total_value:,.0f}"],
+        '现金%': [f"{cash_pct:.1f}%"],
+        '指数基金%': [f"{index_pct:.1f}%"],
+        '分红股%': [f"{dividend_pct:.1f}%"],
+        '蓝筹股%': [f"{blue_pct:.1f}%"],
+        '贵金属%': [f"{metals_pct:.1f}%"],
+        '小盘%': [f"{small_pct:.1f}%"],
+        '收益率': [f"{total_return:.1f}%"]
+    }
+    
+    summary_df = pd.DataFrame(summary_data)
+    st.dataframe(summary_df.T, use_container_width=True)
+    
+    # 可视化
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("📊 资产占比")
+        non_zero_cats = cat_summary[cat_summary['市值_RMB'] > 0]
+        if not non_zero_cats.empty:
+            fig = go.Figure(data=[go.Pie(
+                labels=non_zero_cats['分类'],
+                values=non_zero_cats['市值_RMB'],
+                hole=0.4,
+                marker=dict(colors=px.colors.qualitative.Set3)
             )])
-            fig.update_layout(template="plotly_dark", xaxis_title="标的", yaxis_title="市值 ($)")
+            fig.update_layout(template="plotly_dark", height=300)
             st.plotly_chart(fig, use_container_width=True)
-        
-        with col_right:
-            st.subheader("📊 市值分布 (RMB)")
+    
+    with col2:
+        st.subheader("📈 各类收益率")
+        return_cats = cat_summary[cat_summary['成本_RMB'] > 0]
+        if not return_cats.empty:
+            colors = ['#00E5FF' if r > 0 else '#FF6B6B' for r in return_cats['收益率']]
             fig2 = go.Figure(data=[go.Bar(
-                x=df['symbol'],
-                y=df['市值_RMB'],
-                marker_color=df['color']
+                x=return_cats['分类'],
+                y=return_cats['收益率'],
+                marker_color=colors
             )])
-            fig2.update_layout(template="plotly_dark", xaxis_title="标的", yaxis_title="市值 (¥)")
+            fig2.update_layout(template="plotly_dark", height=300)
             st.plotly_chart(fig2, use_container_width=True)
+    
+    # 个股明细
+    st.markdown("### 📋 个股持仓明细")
+    
+    # 按分类分组显示
+    for cat in cat_order:
+        cat_holdings = df[df['category'] == cat]
+        if cat_holdings.empty:
+            continue
         
-        st.subheader("📋 持仓明细")
-        d = df[['symbol', 'shares', 'avg_cost', 'cost_basis', 'market_value', '市值_RMB', 'unrealized_pnl', '盈亏_RMB']].copy()
-        d.columns = ['标的', '股数', '均价', '成本(USD)', '市值(USD)', '市值(RMB)', '盈亏(USD)', '盈亏(RMB)']
-        st.dataframe(d.style.format({
-            '均价': '${:.2f}',
+        st.markdown(f"#### {category_map.get(cat, cat)}")
+        
+        display_df = cat_holdings[['symbol', 'shares', 'avg_cost', 'market_price', 'cost_basis', 'market_value', '市值_RMB', 'unrealized_pnl', '盈亏_RMB', '盈亏率']].copy()
+        display_df.columns = ['标的', '股数', '买入均价', '现价', '成本(USD)', '市值(USD)', '市值(RMB)', '盈亏(USD)', '盈亏(RMB)', '盈亏率%']
+        
+        st.dataframe(display_df.style.format({
+            '买入均价': '${:.2f}',
+            '现价': '${:.2f}',
             '成本(USD)': '${:,.2f}',
             '市值(USD)': '${:,.2f}',
             '市值(RMB)': '¥{:,.2f}',
             '盈亏(USD)': '${:,.2f}',
-            '盈亏(RMB)': '¥{:,.2f}'
+            '盈亏(RMB)': '¥{:,.2f}',
+            '盈亏率%': '{:.1f}%'
         }), use_container_width=True)
 
 
@@ -545,7 +665,7 @@ def show_trading_log():
 def show_wheel():
     """期权车轮 - 自动从交易日志抓取"""
     st.title("🎯 期权车轮 Options Wheel")
-    st.caption("自动从交易日志抓取期权交易，计算成本和年化收益")
+    st.caption("自动从交易日志抓取期权交易，权利金与行权价分开计算")
     
     rates = fetch_exchange_rates()
     usd_to_rmb = rates['USD']['rmb']
@@ -566,6 +686,9 @@ def show_wheel():
     
     option_df = pd.DataFrame(option_tx)
     option_df['date'] = pd.to_datetime(option_df['datetime'])
+    option_df['datetime_str'] = option_df['datetime'].astype(str)
+    option_df['权利金_RMB'] = option_df['quantity'] * option_df['price'] * usd_to_rmb
+    
     symbols = sorted(option_df['symbol'].dropna().unique())
     
     if not symbols:
@@ -583,53 +706,51 @@ def show_wheel():
     sto = symbol_tx[symbol_tx['action'] == 'STO'].copy()  # 卖出开仓
     btc = symbol_tx[symbol_tx['action'].isin(['STC', 'BTC'])].copy()  # 买回平仓
     
-    # 收到的权利金
-    premium_received = (sto['quantity'] * sto['price']).sum()
-    # 付出的权利金
-    premium_paid = (btc['quantity'] * btc['price']).sum() if not btc.empty else 0
-    # 净权利金
-    net_premium = premium_received - premium_paid
+    # 权利金计算
+    premium_received = (sto['quantity'] * sto['price']).sum()  # 收到的权利金
+    premium_paid = (btc['quantity'] * btc['price']).sum() if not btc.empty else 0  # 付出的权利金
+    net_premium = premium_received - premium_paid  # 净权利金
     
-    # 当前持仓（空头Put数量）
-    current_short = sto['quantity'].sum() - btc['quantity'].sum()
+    # 当前持仓
+    current_short_put = int(sto['quantity'].sum() - btc['quantity'].sum())
     
-    # 资金占用（假设按行权价计算）
-    avg_strike = sto['price'].mean() if not sto.empty else 0
-    capital_used = current_short * avg_strike * 100 if current_short > 0 else 0
+    # 权利金汇总（按币种）
+    premium_rmb = net_premium * usd_to_rmb
     
-    # 年化收益（简化计算）
-    if not symbol_tx.empty:
-        first_date = symbol_tx['date'].min()
-        last_date = symbol_tx['date'].max()
-        days = (last_date - first_date).days
-        days = max(days, 1)
-        # 年化收益率 = (净权利金 / 资金占用) * (365 / 天数)
-        if capital_used > 0:
-            annualized_return = (net_premium / capital_used) * (365 / days) * 100
-        else:
-            annualized_return = 0
-    else:
-        annualized_return = 0
+    # 收益指标
+    total_return = net_premium  # 当前收益（只算已实现）
+    return_pct = 0  # 收益率（需要行权价才能计算）
     
     # 指标卡片
     st.markdown(f"### 📊 {selected_symbol} 期权概览")
     
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("💵 累计权利金收入", f"${premium_received:,.2f}", delta_color="normal")
-    col2.metric("💸 累计权利金支出", f"${premium_paid:,.2f}", delta_color="inverse")
+    col1, col2, col3 = st.columns(3)
+    col1.metric("💵 累计权利金收入", f"${premium_received:,.2f}")
+    col2.metric("💸 累计权利金支出", f"${premium_paid:,.2f}")
     col3.metric("📈 净权利金", f"${net_premium:,.2f}", delta=f"${net_premium:,.2f}")
-    col4.metric("📉 当前空头Put", f"{int(current_short)}张")
     
-    col5, col6, col7 = st.columns(3)
-    col5.metric("💰 资金占用", f"${capital_used:,.2f}")
-    col6.metric("📅 交易天数", f"{days}天")
-    col7.metric("🎯 年化收益率", f"{annualized_return:.1f}%", delta=f"{annualized_return:.1f}%")
+    col4, col5 = st.columns(2)
+    col4.metric("💴 净权利金(RMB)", f"¥{premium_rmb:,.0f}")
+    col5.metric("📉 当前空头Put", f"{current_short_put}张")
+    
+    # === 权利金 vs 行权价 说明 ===
+    with st.expander("💡 权利金与行权价的区别"):
+        st.markdown("""
+        | 概念 | 说明 | 记录位置 |
+        |------|------|----------|
+        | **权利金 (Premium)** | 买卖期权的价格，也就是期权费 | price 字段 |
+        | **行权价 (Strike Price)** | 期权到期时可以买卖股票的约定价格 | note 字段或单独记录 |
+        
+        例如：卖出 AAPL put，行权价 $150，权利金 $2.50
+        - 收到权利金：$2.50 × 100 = $250
+        - 需准备资金：$150 × 100 = $15,000（如果被行权）
+        """)
     
     # 可视化
     col_left, col_right = st.columns(2)
     
     with col_left:
-        st.subheader("📈 权利金流向")
+        st.subheader("📈 权利金月度流向")
         monthly = symbol_tx.groupby(symbol_tx['date'].dt.strftime('%Y-%m'))['price'].sum()
         if not monthly.empty:
             fig = go.Figure(data=[go.Bar(
@@ -643,7 +764,7 @@ def show_wheel():
     with col_right:
         st.subheader("📊 操作类型分布")
         action_counts = symbol_tx['action'].value_counts()
-        action_map = {'STO': '卖出Put', 'STC': '买回Put', 'BTC': '买回'}
+        action_map = {'STO': '卖出Put (开仓)', 'STC': '买回Put (平仓)', 'BTC': '买回平仓'}
         labels = [action_map.get(a, a) for a in action_counts.index]
         fig2 = go.Figure(data=[go.Pie(
             labels=labels,
@@ -654,10 +775,11 @@ def show_wheel():
         fig2.update_layout(template="plotly_dark", height=300)
         st.plotly_chart(fig2, use_container_width=True)
     
-    # 累计收益曲线
-    st.subheader("📈 累计权利金收益曲线")
+    # 累计权利金曲线
+    st.subheader("📈 累计权利金曲线")
     symbol_tx_sorted = symbol_tx.sort_values('date')
     symbol_tx_sorted['cumulative'] = (symbol_tx_sorted['quantity'] * symbol_tx_sorted['price']).cumsum()
+    
     fig3 = go.Figure(data=[go.Scatter(
         x=symbol_tx_sorted['date'].dt.strftime('%Y-%m-%d'),
         y=symbol_tx_sorted['cumulative'],
@@ -668,6 +790,36 @@ def show_wheel():
     )])
     fig3.update_layout(template="plotly_dark", height=350)
     st.plotly_chart(fig3, use_container_width=True)
+    
+    # 交易明细表
+    st.subheader("📋 期权交易明细")
+    
+    display_df = symbol_tx[['datetime', 'action', 'quantity', 'price', 'fees', '权利金_RMB']].copy()
+    display_df['日期'] = pd.to_datetime(display_df['datetime']).dt.strftime('%Y-%m-%d')
+    
+    action_map_cn = {'STO': '卖出Put (开仓)', 'STC': '买回Put (平仓)', 'BTC': '买回平仓'}
+    display_df['操作'] = display_df['action'].map(action_map_cn)
+    
+    d = display_df[['日期', '操作', 'quantity', 'price', 'fees', '权利金_RMB']].copy()
+    d.columns = ['日期', '操作', '张数', '权利金(USD)', '手续费', '权利金(RMB)']
+    
+    st.dataframe(d.style.format({
+        '权利金(USD)': '${:,.2f}',
+        '手续费': '${:,.2f}',
+        '权利金(RMB)': '¥{:,.2f}'
+    }), use_container_width=True)
+    
+    # 实时价格说明
+    with st.expander("💡 关于实时价格"):
+        st.markdown("""
+        **获取实时价格的方式：**
+        
+        1. **IBKR API** - 需要IBKR账户，支持实时价格
+        2. **yfinance** - 免费，延迟15分钟
+        3. **券商CSV导入** - 手动导出持仓报告
+        
+        如需启用实时价格，请提供IBKR API凭证或上传CSV文件。
+        """)
     
     # 交易明细表
     st.subheader("📋 期权交易明细")
