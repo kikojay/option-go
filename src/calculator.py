@@ -41,43 +41,41 @@ class WheelCalculator:
     def calculate_option_pnl(self, symbol: str) -> Dict:
         """
         计算期权盈亏
-        - Sell Put @1: 收 $100, 仓位 -1, P&L = +$100
-        - Buy Put @1:  支 $100, 仓位 +1, P&L = -$100
+        根据 amount 符号约定：正数=支出/买入，负数=收入/卖出
+        - Sell Put @1: amount = -100 (收入), pnl = -(-100) = +100 ✓
+        - Buy Put @1:  amount = 100 (支出), pnl = -100 = -100 ✓
+        平仓交易也包含在内（所有期权交易的 amount 都算）
         """
         tx = [t for t in self.transactions if t.symbol == symbol and t.type == "option"]
 
-        total_pnl = 0
-
-        for t in tx:
-            # amount 是负数（收入），取反为正数（盈利）
-            pnl = -t.amount
-            total_pnl += pnl
+        # 直接求和所有期权交易的收支（支出为正，收入为负）
+        # 取反得到盈亏：支出为负P&L，收入为正P&L
+        total_pnl = sum(-t.amount for t in tx)
 
         return {"total_pnl": total_pnl}
 
     def calculate_adjusted_cost_basis(self, symbol: str) -> Dict:
         """
         计算调整后成本基准
-        公式：(股票买入成本 + 权利金收入 + 手续费) / 持仓数量
+        公式：(股票买入成本 - 权利金收入 + 手续费) / 持仓数量
+        
+        amount 符号约定：正数=支出，负数=收入
+        - stock_buy: 正数（支出）
+        - premiums_from_options: 负数（收入）
+        - net_cost = stock_buy - premiums_from_options + fees（不加负号）
         """
         tx = [t for t in self.transactions if t.symbol == symbol]
 
-        # 股票买入成本（负数，支出）
+        # 股票买入成本（正数，支出）
         stock_buy = sum(
             t.amount for t in tx
             if t.type == "stock" and t.subtype in ["buy", "assignment"]
         )
 
-        # 卖出股票收入（正数）
-        stock_sell = sum(
+        # 所有期权相关的权利金和成本（包括卖出收入和买入成本）
+        premiums_from_options = sum(
             t.amount for t in tx
-            if t.type == "stock" and t.subtype in ["sell", "called_away"]
-        )
-
-        # 收取的权利金（负数，表示收入）
-        premiums_collected = sum(
-            t.amount for t in tx
-            if t.subtype in ["sell_put", "sell_call"]
+            if t.type == "option"
         )
 
         # 手续费支出（正数）
@@ -98,59 +96,80 @@ class WheelCalculator:
             return {
                 "current_shares": 0,
                 "adjusted_cost": 0,
-                "total_premiums": premiums_collected,
+                "total_premiums": premiums_from_options,
                 "cost_basis": 0,
                 "option_positions": self.calculate_option_positions(symbol)
             }
 
         # 调整后成本（每股）
-        net_cost = -stock_buy + premiums_collected + fees_paid
+        # net_cost = 股票支出 - 期权收入 + 手续费
+        # 因为 premiums_from_options 是负数（收入），所以直接减去它
+        net_cost = stock_buy - premiums_from_options + fees_paid
         adjusted_cost = net_cost / current_shares
 
         return {
             "current_shares": current_shares,
             "adjusted_cost": adjusted_cost,
-            "total_premiums": premiums_collected,
+            "total_premiums": premiums_from_options,
             "cost_basis": net_cost,
-            "premiums_per_share": -premiums_collected / current_shares,
+            "premiums_per_share": -premiums_from_options / current_shares,
             "fees_per_share": fees_paid / current_shares,
             "option_positions": self.calculate_option_positions(symbol)
         }
 
     def calculate_realized_pnl(self, symbol: str = None) -> float:
-        """计算已实现盈亏"""
+        """
+        计算已实现盈亏
+        
+        包括两部分：
+        1. 期权盈亏：所有期权交易的累计收支（-amount）
+        2. 股票卖出盈亏：卖出/被行权的股票收入（-amount）
+           减去持仓成本（已通过 cost_basis 计算）
+        """
         tx = self.transactions
         if symbol:
             tx = [t for t in tx if t.symbol == symbol]
 
-        # 期权盈亏（收入为正）
+        # 期权盈亏：所有期权交易的累计收支（支出为负，收入为正）
         option_pnl = sum(
             -t.amount for t in tx
             if t.type == "option"
         )
 
-        # 股票买卖盈亏
-        stock_pnl = sum(
-            (-t.amount) for t in tx
+        # 股票卖出收入（负数，取反为正）
+        stock_sale_proceeds = sum(
+            -t.amount for t in tx
             if t.type == "stock" and t.subtype in ["sell", "called_away"]
-        ) + sum(
+        )
+
+        # 股票购入成本（正数）
+        stock_purchase_cost = sum(
             t.amount for t in tx
             if t.type == "stock" and t.subtype in ["buy", "assignment"]
         )
 
-        # 手续费
+        # 手续费（支出）
         fees = sum(t.fees for t in tx)
 
-        return option_pnl + stock_pnl - fees
+        # 已实现盈亏 = (卖出收入 - 购入成本) + 期权收益 - 手续费
+        stock_pnl = stock_sale_proceeds - stock_purchase_cost
+        realized_pnl = stock_pnl + option_pnl - fees
+
+        return realized_pnl
 
     def calculate_unrealized_pnl(self, symbol: str, current_price: float) -> Dict:
-        """计算未实现盈亏（浮动盈亏）"""
+        """
+        计算未实现盈亏（浮动盈亏）
+        
+        未实现盈亏 = 当前持仓市值 - 调整后成本基准
+        """
         basis = self.calculate_adjusted_cost_basis(symbol)
 
         if basis["current_shares"] <= 0:
             return {
                 "unrealized_pnl": 0,
                 "current_shares": 0,
+                "market_value": 0,
                 "option_positions": basis.get("option_positions", {})
             }
 
@@ -162,6 +181,7 @@ class WheelCalculator:
             "market_value": market_value,
             "current_shares": basis["current_shares"],
             "adjusted_cost": basis["adjusted_cost"],
+            "cost_basis": basis["cost_basis"],
             "option_positions": basis.get("option_positions", {})
         }
 
