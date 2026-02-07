@@ -231,6 +231,8 @@ ACTION_CN = {
     "DIVIDEND":    "分红",
     "INCOME":      "收入",
     "EXPENSE":     "支出",
+    "DEPOSIT":     "入金",
+    "WITHDRAW":    "出金",
 }
 
 ACTION_LABELS = {

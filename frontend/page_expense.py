@@ -10,10 +10,11 @@ from .config import COLORS, EXPENSE_CATEGORIES
 from .helpers import fetch_exchange_rates, plotly_layout
 
 
-# ── 需要过滤掉的投资/期权 action ──
+# ── 需要过滤掉的投资/期权/资金流动 action ──
 _INVEST_ACTIONS = {
     "BUY", "SELL", "STO", "STO_CALL", "STC", "BTC",
     "BTO_CALL", "ASSIGNMENT", "CALLED_AWAY", "DIVIDEND",
+    "DEPOSIT", "WITHDRAW",
 }
 
 

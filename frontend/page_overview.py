@@ -1,5 +1,6 @@
 """页面：总览 Overview — 复古金融报告风格"""
 import streamlit as st
+import streamlit.components.v1 as stc
 import pandas as pd
 import plotly.graph_objects as go
 from typing import Dict, List, Tuple
@@ -134,7 +135,11 @@ def page_overview():
     with col_table:
         if cat_colors:
             html_table = _build_asset_table(cat_colors)
-            st.markdown(html_table, unsafe_allow_html=True)
+            # 使用 components.html 确保 HTML 完整渲染，不被 markdown parser 截断
+            full_html = _PAGE_CSS + html_table
+            row_count = len(cat_colors) + 2  # header + total
+            table_height = max(280, row_count * 52 + 80)
+            stc.html(full_html, height=table_height, scrolling=False)
         else:
             st.info("暂无账户数据")
 

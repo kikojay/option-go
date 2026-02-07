@@ -7,8 +7,8 @@
     "change_pct": 0.0,
     "currency": "USD",
     "name": "iShares Silver Trust",
-    "updated_at": "2026-02-07 04:46:17",
-    "_ts": 1770439577.1388724
+    "updated_at": "2026-02-07 06:23:04",
+    "_ts": 1770445384.5993607
   },
   "PLTR": {
     "symbol": "PLTR",
@@ -18,8 +18,8 @@
     "change_pct": 4.53,
     "currency": "USD",
     "name": "Palantir Technologies Inc.",
-    "updated_at": "2026-02-07 04:46:16",
-    "_ts": 1770439576.7269566
+    "updated_at": "2026-02-07 06:23:04",
+    "_ts": 1770445384.463396
   },
   "AAPL": {
     "symbol": "AAPL",
@@ -29,8 +29,8 @@
     "change_pct": 0.8,
     "currency": "USD",
     "name": "Apple Inc.",
-    "updated_at": "2026-02-07 05:05:49",
-    "_ts": 1770440749.4793096
+    "updated_at": "2026-02-07 06:23:04",
+    "_ts": 1770445384.8717563
   },
   "VOO": {
     "symbol": "VOO",
@@ -40,8 +40,8 @@
     "change_pct": 0.0,
     "currency": "USD",
     "name": "Vanguard S&P 500 ETF",
-    "updated_at": "2026-02-07 04:46:16",
-    "_ts": 1770439576.5860791
+    "updated_at": "2026-02-07 06:23:04",
+    "_ts": 1770445384.7357416
   },
   "GLD": {
     "symbol": "GLD",
@@ -51,7 +51,7 @@
     "change_pct": 0.0,
     "currency": "USD",
     "name": "SPDR Gold Shares",
-    "updated_at": "2026-02-07 04:46:16",
-    "_ts": 1770439576.8608315
+    "updated_at": "2026-02-07 06:23:04",
+    "_ts": 1770445384.3263857
   }
 }

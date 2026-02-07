@@ -60,11 +60,11 @@ def page_wheel():
         st.info("暂无期权交易记录，去 📝 交易日志 添加吧！")
         return
 
-    # 全量 Transaction (股票 + 期权)
+    # 全量 Transaction (股票 + 期权 + 分红)
     all_relevant = [
         t for t in tx_raw
         if t.get("symbol") in option_symbols
-        and t.get("action") in (OPTION_ACTIONS | STOCK_ACTIONS)
+        and t.get("action") in (OPTION_ACTIONS | STOCK_ACTIONS | {"DIVIDEND"})
     ]
     transactions = [dict_to_transaction(t) for t in all_relevant]
     wheel_calc = WheelCalculator(transactions)
@@ -298,12 +298,19 @@ def page_wheel():
     if shares > 0 and cost_basis > 0:
         _heading("盈亏分析 & 回本预测")
 
-        # ── Net Basis = 持仓成本 − 已收权利金 ──
+        # ── Net Basis = 持仓成本 − 已收权利金 − 已收分红 ──
         stock_only_cost = sum(
             t["price"] * t["quantity"]
             for t in sym_txs if t["action"] in ("BUY", "ASSIGNMENT")
         )
-        net_basis = stock_only_cost - net_prem  # 净成本基准
+
+        # 累计已收分红
+        total_dividends = sum(
+            t.get("price", 0) * t.get("quantity", 1)
+            for t in sym_txs if t.get("action") == "DIVIDEND"
+        )
+
+        net_basis = stock_only_cost - net_prem - total_dividends
         net_basis_per_share = net_basis / shares if shares else 0
 
         # 获取当前股价
@@ -335,12 +342,13 @@ def page_wheel():
                       delta=f"vs净成本 ${cur_price - net_basis_per_share:+.2f}")
         else:
             c4.metric("当前股价", "—")
-        c5.metric("每周均权利金", f"${avg_weekly_prem:,.2f}")
+        c5.metric("累计分红", f"${total_dividends:,.2f}")
 
         if avg_weekly_prem > 0 and net_basis > 0:
             weeks_to_zero = net_basis / avg_weekly_prem
             st.info(
-                f"以每周 ${avg_weekly_prem:.2f} 权利金计算，预计 **{weeks_to_zero:.0f} 周"
+                f"公式: (原始成本 ${stock_only_cost:,.0f} − 权利金 ${net_prem:,.0f} − 分红 ${total_dividends:,.0f})"
+                f" / 每周 ${avg_weekly_prem:.2f} = **{weeks_to_zero:.0f} 周"
                 f"（{weeks_to_zero / 4.33:.0f} 月）** 完全回本"
             )
 

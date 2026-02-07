@@ -38,12 +38,12 @@ def page_yearly_summary():
         fig1 = go.Figure()
         fig1.add_trace(go.Bar(
             name="税前收入", x=df["year_str"], y=df["pre_tax_income"] / 10000,
-            marker_color=COLORS["primary"], width=0.25,
+            marker_color=COLORS["primary"], width=0.16,
             marker_line=dict(color="#1A324F", width=1),
         ))
         fig1.add_trace(go.Bar(
             name="税后收入", x=df["year_str"], y=df["post_tax_income"] / 10000,
-            marker_color=COLORS["secondary"], width=0.25,
+            marker_color=COLORS["secondary"], width=0.16,
             marker_line=dict(color="#3A6A38", width=1),
         ))
         fig1.add_trace(go.Scatter(
@@ -76,12 +76,12 @@ def page_yearly_summary():
         fig2 = go.Figure()
         fig2.add_trace(go.Bar(
             name="五险一金", x=df["year_str"], y=df["social_insurance"] / 10000,
-            marker_color=COLORS["danger"], width=0.25,
+            marker_color=COLORS["danger"], width=0.16,
             marker_line=dict(color="#7A1D15", width=1),
         ))
         fig2.add_trace(go.Bar(
             name="个税", x=df["year_str"], y=df["income_tax"] / 10000,
-            marker_color=COLORS["warning"], width=0.25,
+            marker_color=COLORS["warning"], width=0.16,
             marker_line=dict(color="#9A760E", width=1),
         ))
         total_deduct = (df["social_insurance"] + df["income_tax"]) / 10000

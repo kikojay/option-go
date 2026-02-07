@@ -1,11 +1,11 @@
 """页面：投资组合 Portfolio — 三子页面（总览趋势 / 持仓明细 / 期权策略）"""
 import streamlit as st
+import streamlit.components.v1 as stc
 import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime
 
-from src.database_v2 import get_transactions, get_all_snapshots
-from src import PortfolioCalculator, WheelCalculator
+from src.database_v2 import get_transactions, get_all_snapshots, add_transaction
 
 from api.stock_data import get_batch_prices
 from api.stock_names import get_stock_name
@@ -15,11 +15,25 @@ from .helpers import (
     plotly_layout, metric_row, stock_label,
 )
 
+# 延迟导入避免循环
+_CALC_IMPORTED = False
+PortfolioCalculator = None
+WheelCalculator = None
+
+def _ensure_calcs():
+    global _CALC_IMPORTED, PortfolioCalculator, WheelCalculator
+    if not _CALC_IMPORTED:
+        from src import PortfolioCalculator as PC, WheelCalculator as WC
+        PortfolioCalculator = PC
+        WheelCalculator = WC
+        _CALC_IMPORTED = True
+
 
 # ── helpers ──
 
 OPTION_ACTIONS = {"STO", "STO_CALL", "STC", "BTC", "BTO_CALL"}
 STOCK_ACTIONS  = {"BUY", "SELL", "ASSIGNMENT", "CALLED_AWAY"}
+CAPITAL_ACTIONS = {"DEPOSIT", "WITHDRAW"}
 
 
 def _heading(title: str):
@@ -31,11 +45,17 @@ def _heading(title: str):
     )
 
 
+def _safe_html(html_str: str, height: int = 200):
+    """安全渲染 HTML，使用 st.components.v1.html 避免标签泄露"""
+    stc.html(html_str, height=height, scrolling=False)
+
+
 # ════════════════════════════════════════════════════════
 #  公共数据加载（缓存在 session_state 避免重复查询）
 # ════════════════════════════════════════════════════════
 
 def _load_data():
+    _ensure_calcs()
     rates = fetch_exchange_rates()
     usd_rmb = rates["USD"]["rmb"]
 
@@ -59,6 +79,13 @@ def _load_data():
         except Exception:
             pass
 
+    # 加载入金/出金记录
+    all_tx = get_transactions(limit=5000)
+    capital_flows = [
+        t for t in all_tx
+        if t.get("action") in CAPITAL_ACTIONS
+    ]
+
     return {
         "rates": rates,
         "usd_rmb": usd_rmb,
@@ -68,11 +95,12 @@ def _load_data():
         "summary": summary,
         "holdings": holdings,
         "live_prices": live_prices,
+        "capital_flows": capital_flows,
     }
 
 
 # ════════════════════════════════════════════════════════
-#  子页面 1 ── 总览趋势 (Overview)
+#  子页面 1 ── 总览趋势 (Performance)
 # ════════════════════════════════════════════════════════
 
 def _sub_overview(data):
@@ -104,8 +132,49 @@ def _sub_overview(data):
     st.markdown('<hr style="border:none;border-top:1px solid #2D2D2D;margin:0.8rem 0">',
                 unsafe_allow_html=True)
 
+    # ── 入金/出金管理 ──
+    with st.expander("💰 入金/出金记录（影响收益率计算）", expanded=False):
+        c1, c2, c3, c4 = st.columns(4)
+        dep_type = c1.selectbox("类型", ["DEPOSIT", "WITHDRAW"],
+                                format_func=lambda x: "入金" if x == "DEPOSIT" else "出金",
+                                key="dep_type")
+        dep_amount = c2.number_input("金额 (USD)", value=0.0, step=100.0, key="dep_amount")
+        dep_date = c3.date_input("日期", value=datetime.now().date(), key="dep_date")
+        dep_note = c4.text_input("备注", placeholder="例: 追加资金", key="dep_note")
+
+        if st.button("保存", key="btn_save_deposit"):
+            if dep_amount > 0:
+                add_transaction(
+                    datetime_str=dep_date.strftime("%Y-%m-%d"),
+                    action=dep_type,
+                    quantity=1,
+                    price=dep_amount,
+                    currency="USD",
+                    category="资金流动",
+                    note=dep_note or ("入金" if dep_type == "DEPOSIT" else "出金"),
+                )
+                st.success("已保存！")
+                st.rerun()
+            else:
+                st.error("金额必须大于 0")
+
+        # 显示历史入金/出金
+        capital_flows = data.get("capital_flows", [])
+        if capital_flows:
+            cf_df = pd.DataFrame(capital_flows)
+            cf_df = cf_df[cf_df["action"].isin(CAPITAL_ACTIONS)]
+            if not cf_df.empty:
+                cf_display = cf_df[["datetime", "action", "price", "note"]].copy()
+                cf_display["datetime"] = pd.to_datetime(cf_display["datetime"]).dt.strftime("%Y-%m-%d")
+                cf_display["action"] = cf_display["action"].map({"DEPOSIT": "入金", "WITHDRAW": "出金"})
+                cf_display.columns = ["日期", "类型", "金额(USD)", "备注"]
+                st.dataframe(cf_display, use_container_width=True, hide_index=True,
+                             column_config={
+                                 "金额(USD)": st.column_config.NumberColumn("金额(USD)", format="$%,.0f"),
+                             })
+
     # ── 总资产走势（从快照数据） ──
-    _heading("总资产走势")
+    _heading("总资产增长曲线")
 
     snapshots = get_all_snapshots()
     if snapshots:
@@ -113,37 +182,64 @@ def _sub_overview(data):
         sdf["date_parsed"] = pd.to_datetime(sdf["date"])
         sdf = sdf.sort_values("date_parsed")
 
-        # 用快照的总资产 USD
         sdf["total_usd"] = sdf["total_assets_usd"]
         sdf["日期"] = sdf["date_parsed"].dt.strftime("%Y-%m-%d")
 
-        # ── 手动入金估算：累计 BUY + ASSIGNMENT 的支出作为"本金投入" ──
-        tx_raw = data["tx_raw"]
-        deposit_records = []
-        running_deposit = 0.0
-        for t in sorted(tx_raw, key=lambda x: x["datetime"]):
-            if t.get("action") in ("BUY", "ASSIGNMENT"):
-                running_deposit += t.get("price", 0) * t.get("quantity", 0)
-            dt = t["datetime"][:10]
-            deposit_records.append({"date": dt, "deposit": running_deposit})
+        # ── 入金/出金：计算累计净入金 ──
+        capital_flows = data.get("capital_flows", [])
+        if capital_flows:
+            dep_records = []
+            running_deposit = 0.0
+            for cf in sorted(capital_flows, key=lambda x: x["datetime"]):
+                act = cf.get("action", "")
+                amt = cf.get("price", 0)
+                if act == "DEPOSIT":
+                    running_deposit += amt
+                elif act == "WITHDRAW":
+                    running_deposit -= amt
+                dep_records.append({"date": cf["datetime"][:10], "deposit": running_deposit})
 
-        if deposit_records:
-            dep_df = pd.DataFrame(deposit_records).drop_duplicates(subset="date", keep="last")
-            dep_df["date_parsed"] = pd.to_datetime(dep_df["date"])
-
-            # 将 deposit 映射到快照日期（向后填充）
-            merged = pd.merge_asof(
-                sdf.sort_values("date_parsed"),
-                dep_df[["date_parsed", "deposit"]].sort_values("date_parsed"),
-                on="date_parsed",
-                direction="backward",
-            )
-            merged["deposit"] = merged["deposit"].fillna(0)
-            merged["gain"] = merged["total_usd"] - merged["deposit"]
+            if dep_records:
+                dep_df = pd.DataFrame(dep_records).drop_duplicates(subset="date", keep="last")
+                dep_df["date_parsed"] = pd.to_datetime(dep_df["date"])
+                merged = pd.merge_asof(
+                    sdf.sort_values("date_parsed"),
+                    dep_df[["date_parsed", "deposit"]].sort_values("date_parsed"),
+                    on="date_parsed",
+                    direction="backward",
+                )
+                merged["deposit"] = merged["deposit"].fillna(0)
+                merged["gain"] = merged["total_usd"] - merged["deposit"]
+            else:
+                merged = sdf.copy()
+                merged["deposit"] = 0
+                merged["gain"] = merged["total_usd"]
         else:
-            merged = sdf.copy()
-            merged["deposit"] = 0
-            merged["gain"] = merged["total_usd"]
+            # 无入金记录 → 用 BUY+ASSIGNMENT 估算本金
+            tx_raw = data["tx_raw"]
+            deposit_records = []
+            running_deposit = 0.0
+            for t in sorted(tx_raw, key=lambda x: x["datetime"]):
+                if t.get("action") in ("BUY", "ASSIGNMENT"):
+                    running_deposit += t.get("price", 0) * t.get("quantity", 0)
+                dt = t["datetime"][:10]
+                deposit_records.append({"date": dt, "deposit": running_deposit})
+
+            if deposit_records:
+                dep_df = pd.DataFrame(deposit_records).drop_duplicates(subset="date", keep="last")
+                dep_df["date_parsed"] = pd.to_datetime(dep_df["date"])
+                merged = pd.merge_asof(
+                    sdf.sort_values("date_parsed"),
+                    dep_df[["date_parsed", "deposit"]].sort_values("date_parsed"),
+                    on="date_parsed",
+                    direction="backward",
+                )
+                merged["deposit"] = merged["deposit"].fillna(0)
+                merged["gain"] = merged["total_usd"] - merged["deposit"]
+            else:
+                merged = sdf.copy()
+                merged["deposit"] = 0
+                merged["gain"] = merged["total_usd"]
 
         fig = go.Figure()
         fig.add_trace(go.Scatter(
@@ -161,7 +257,7 @@ def _sub_overview(data):
             hovertemplate="%{x}<br>本金: $%{y:,.0f}<extra></extra>",
         ))
         fig.add_trace(go.Scatter(
-            name="累计收益", x=merged["日期"], y=merged["gain"],
+            name="真实收益", x=merged["日期"], y=merged["gain"],
             mode="lines",
             line=dict(color="#5B8C5A", width=2, dash="dash"),
             hovertemplate="%{x}<br>收益: $%{y:,.0f}<extra></extra>",
@@ -204,28 +300,6 @@ def _sub_overview(data):
 
     else:
         st.caption("暂无快照数据，无法绘制走势图。请先到「月度快照」页面生成快照。")
-
-    # ── 盈亏分布 ──
-    _heading("标的盈亏分布")
-    symbols = list(holdings.keys())
-    pnls = [h.get("unrealized_pnl", 0) for h in holdings.values()]
-    fig = go.Figure(go.Bar(
-        x=[stock_label(s) for s in symbols],
-        y=pnls,
-        marker_color=[
-            COLORS["secondary"] if p >= 0 else COLORS["danger"] for p in pnls
-        ],
-        text=[f"${p:+,.0f}" for p in pnls],
-        textposition="outside",
-        textfont=dict(size=12, family="'Times New Roman', serif"),
-    ))
-    fig.update_layout(**plotly_layout(
-        height=300,
-        margin=dict(l=55, r=15, t=15, b=50),
-        xaxis_title="标的",
-        yaxis_title="盈亏 ($)",
-    ))
-    st.plotly_chart(fig, use_container_width=True, key="port_pnl_bar")
 
 
 # ════════════════════════════════════════════════════════
@@ -327,6 +401,7 @@ def _sub_holdings(data):
         t_pnl   = sum(r["盈亏($)"] for r in rows)
         t_prem  = sum(r["权利金"] for r in rows)
         t_adiv  = sum(r["年收息($)"] for r in rows)
+        t_mdiv  = sum(r["月分红($)"] for r in rows)
 
         footer = (
             '<div style="font-family:Georgia,serif;font-size:0.9rem;color:#2D2D2D;'
@@ -342,6 +417,8 @@ def _sub_holdings(data):
             + f"${t_prem:,.0f}" + '</b></span>'
             '<span>预估年收息 <b style="font-family:\'Times New Roman\',serif">'
             + f"${t_adiv:,.2f}" + '</b></span>'
+            '<span>预估月分红 <b style="font-family:\'Times New Roman\',serif;color:#5B8C5A">'
+            + f"${t_mdiv:,.2f}" + '</b></span>'
             '</div>'
         )
         st.markdown(footer, unsafe_allow_html=True)
@@ -354,6 +431,7 @@ def _sub_holdings(data):
 # ════════════════════════════════════════════════════════
 
 def _sub_options(data):
+    _ensure_calcs()
     tx_raw = data["tx_raw"]
     usd_rmb = data["usd_rmb"]
 
@@ -369,7 +447,7 @@ def _sub_options(data):
     all_relevant = [
         t for t in tx_raw
         if t.get("symbol") in option_symbols
-        and t.get("action") in (OPTION_ACTIONS | STOCK_ACTIONS)
+        and t.get("action") in (OPTION_ACTIONS | STOCK_ACTIONS | {"DIVIDEND"})
     ]
     transactions = [dict_to_transaction(t) for t in all_relevant]
     wheel_calc = WheelCalculator(transactions)
@@ -382,7 +460,6 @@ def _sub_options(data):
         premiums = wheel_calc.option_calc.get_premiums_summary(sym)
         shares   = int(basis.get("current_shares", 0))
 
-        # 车轮周期状态
         cycle = wheel_calc.get_wheel_cycle_info(sym)
         status_map = {
             "holding": "持股中 · 卖 Call",
@@ -403,13 +480,39 @@ def _sub_options(data):
         if cost_basis > 0 and days_held > 0:
             ann_ret = (net_prem / cost_basis) * (365 / days_held) * 100
 
+        # 累计分红
+        sym_dividends = sum(
+            t.get("price", 0) * t.get("quantity", 1)
+            for t in all_relevant
+            if t.get("symbol") == sym and t.get("action") == "DIVIDEND"
+        )
+
+        # 回本预测（新公式: (原始成本 - 累计权利金 - 累计分红) / 每周平均权利金）
+        sym_option_txs = [
+            t for t in all_relevant
+            if t["symbol"] == sym and t.get("action") in OPTION_ACTIONS
+        ]
+        if sym_option_txs and cost_basis > 0:
+            opt_dates = [t["datetime"][:10] for t in sym_option_txs]
+            first_opt = datetime.strptime(min(opt_dates), "%Y-%m-%d")
+            last_opt = datetime.strptime(max(opt_dates), "%Y-%m-%d")
+            weeks_active = max((last_opt - first_opt).days / 7, 1)
+            avg_weekly_prem = net_prem / weeks_active
+            remaining = cost_basis - net_prem - sym_dividends
+            weeks_to_zero = remaining / avg_weekly_prem if avg_weekly_prem > 0 else float("inf")
+        else:
+            avg_weekly_prem = 0
+            weeks_to_zero = float("inf")
+
         overview_rows.append({
             "标的": stock_label(sym),
             "状态": status_label,
             "持仓(股)": shares,
             "净权利金": net_prem,
+            "累计分红": sym_dividends,
             "调整成本/股": adj_cost if shares else None,
             "年化%": ann_ret,
+            "回本(周)": round(weeks_to_zero, 1) if weeks_to_zero != float("inf") else None,
             "天数": days_held,
         })
 
@@ -417,8 +520,10 @@ def _sub_options(data):
     st.dataframe(odf, use_container_width=True, hide_index=True,
                  column_config={
                      "净权利金": st.column_config.NumberColumn("净权利金", format="$%,.2f"),
+                     "累计分红": st.column_config.NumberColumn("累计分红", format="$%,.2f"),
                      "调整成本/股": st.column_config.NumberColumn("调整成本/股", format="$%.2f"),
                      "年化%": st.column_config.NumberColumn("年化%", format="%.1f%%"),
+                     "回本(周)": st.column_config.NumberColumn("预计回本(周)", format="%.1f"),
                  })
 
     # ── 按标的展开详情 ──
@@ -435,13 +540,50 @@ def _sub_options(data):
     cost_basis = basis.get("cost_basis", 0)
     adj_cost   = basis.get("adjusted_cost", 0)
 
+    # 累计分红
+    sel_dividends = sum(
+        t.get("price", 0) * t.get("quantity", 1)
+        for t in all_relevant
+        if t.get("symbol") == selected and t.get("action") == "DIVIDEND"
+    )
+
     metric_row([
         ("权利金收入", f"${collected:,.2f}"),
         ("权利金支出", f"${paid:,.2f}"),
         ("净权利金",   f"${net_prem:,.2f}"),
+        ("累计分红",   f"${sel_dividends:,.2f}"),
         ("调整成本",   f"${adj_cost:.2f}/股" if shares else "—"),
         ("持仓",       f"{shares} 股"),
     ])
+
+    # ── 回本预测面板 ──
+    if shares > 0 and cost_basis > 0:
+        sel_opt_txs = [
+            t for t in all_relevant
+            if t["symbol"] == selected and t.get("action") in OPTION_ACTIONS
+        ]
+        if sel_opt_txs:
+            opt_dates = [t["datetime"][:10] for t in sel_opt_txs]
+            first_opt = datetime.strptime(min(opt_dates), "%Y-%m-%d")
+            last_opt = datetime.strptime(max(opt_dates), "%Y-%m-%d")
+            weeks_active = max((last_opt - first_opt).days / 7, 1)
+            avg_weekly_prem = net_prem / weeks_active
+
+            remaining_cost = cost_basis - net_prem - sel_dividends
+            if avg_weekly_prem > 0:
+                weeks_to_zero = remaining_cost / avg_weekly_prem
+                progress = min((net_prem + sel_dividends) / cost_basis, 1.0)
+
+                st.markdown('<hr style="border:none;border-top:1px solid #C8C3B5;margin:0.8rem 0">',
+                            unsafe_allow_html=True)
+
+                c1, c2, c3 = st.columns(3)
+                c1.metric("每周均权利金", f"${avg_weekly_prem:,.2f}")
+                c2.metric("剩余成本", f"${remaining_cost:,.0f}")
+                c3.metric("预计回本", f"{weeks_to_zero:.0f} 周 ({weeks_to_zero / 4.33:.0f} 月)")
+
+                st.progress(progress, text=f"回本进度 {progress * 100:.1f}%  "
+                            f"(权利金 ${net_prem:,.0f} + 分红 ${sel_dividends:,.0f}) / 成本 ${cost_basis:,.0f}")
 
     # ── 成本基准变化图 ──
     sym_txs = sorted(
