@@ -3,6 +3,7 @@
 """
 # Re-export all functions from the original database module
 import importlib
+import importlib.util
 import sys
 from pathlib import Path
 
