@@ -20,6 +20,15 @@ OPTION_ACTIONS = {"STO", "STO_CALL", "STC", "BTC", "BTO_CALL"}
 STOCK_ACTIONS  = {"BUY", "SELL", "ASSIGNMENT", "CALLED_AWAY"}
 
 
+def _heading(title: str):
+    st.markdown(
+        "<h3 style='color:#2D2D2D;font-weight:700;font-size:1rem;"
+        "font-family:Georgia,serif;border-bottom:1px solid #2D2D2D;"
+        "padding-bottom:4px'>" + title + "</h3>",
+        unsafe_allow_html=True,
+    )
+
+
 def _annualized_return(premium: float, cost_basis: float, days_held: int) -> float:
     """(权利金 / 成本) × (365 / 天数) × 100"""
     if cost_basis <= 0 or days_held <= 0:
@@ -30,8 +39,11 @@ def _annualized_return(premium: float, cost_basis: float, days_held: int) -> flo
 # ── 页面 ──
 
 def page_wheel():
-    st.title("🎯 期权车轮 Options Wheel")
-    st.caption("跟踪期权交易：成本基准 · 年化收益 · 回本预测 · 热力图")
+    st.markdown(
+        "<h1 style='margin-bottom:4px'>期权车轮</h1>"
+        "<p style='color:#6B6B6B;font-size:14px;margin-top:0'>成本基准 · 年化收益 · 回本预测 · 热力图</p>",
+        unsafe_allow_html=True,
+    )
 
     rates = fetch_exchange_rates()
     usd_rmb = rates["USD"]["rmb"]
@@ -60,13 +72,22 @@ def page_wheel():
     # ═══════════════════════════════════════════════════
     #  1️⃣  全标的概览卡片
     # ═══════════════════════════════════════════════════
-    st.markdown("### 📊 期权标的总览")
+    _heading("期权标的总览")
 
     overview_rows = []
     for sym in option_symbols:
         basis    = wheel_calc.calculate_adjusted_cost_basis(sym)
         premiums = wheel_calc.option_calc.get_premiums_summary(sym)
         shares   = basis.get("current_shares", 0)
+
+        # 车轮周期状态
+        cycle = wheel_calc.get_wheel_cycle_info(sym)
+        _status_map = {
+            "holding": "🔵 持股中 · 卖Call",
+            "waiting": "🟡 等待接盘 · 卖Put",
+            "empty":   "⚪ 无交易",
+        }
+        status_label = _status_map.get(cycle.get("status", ""), "—")
 
         sym_dates = [t["datetime"][:10] for t in all_relevant if t["symbol"] == sym]
         first_date = min(sym_dates) if sym_dates else ""
@@ -79,6 +100,7 @@ def page_wheel():
 
         overview_rows.append({
             "标的": stock_label(sym),
+            "滚动状态": status_label,
             "持仓(股)": int(shares),
             "原始成本/股": f"${cost_basis / shares:.2f}" if shares else "-",
             "调整后成本/股": f"${adj_cost:.2f}" if shares else "-",
@@ -102,7 +124,7 @@ def page_wheel():
     premiums = wheel_calc.option_calc.get_premiums_summary(selected)
     shares   = int(basis.get("current_shares", 0))
 
-    st.markdown(f"### 📈 {stock_label(selected)} 详细分析")
+    _heading(f"{stock_label(selected)} 详细分析")
 
     # ── 核心指标 ──
     net_prem    = premiums.get("net_premium", 0)
@@ -113,11 +135,11 @@ def page_wheel():
     total_fees  = sum(t.fees for t in transactions if t.symbol == selected)
 
     metric_row([
-        ("💵 权利金收入",  f"${collected:,.2f}"),
-        ("💸 权利金支出",  f"${paid:,.2f}"),
-        ("📈 净权利金",    f"${net_prem:,.2f}"),
-        ("💰 调整后成本",  f"${adj_cost:.2f}/股" if shares else "-"),
-        ("📉 持仓",        f"{shares} 股"),
+        ("权利金收入",  f"${collected:,.2f}"),
+        ("权利金支出",  f"${paid:,.2f}"),
+        ("净权利金",    f"${net_prem:,.2f}"),
+        ("调整后成本",  f"${adj_cost:.2f}/股" if shares else "-"),
+        ("持仓",        f"{shares} 股"),
     ])
 
     # ═══════════════════════════════════════════════════
@@ -166,7 +188,7 @@ def page_wheel():
 
     if cost_timeline:
         cdf = pd.DataFrame(cost_timeline)
-        st.subheader("📉 成本基准变化")
+        _heading("成本基准变化")
         fig = go.Figure()
         fig.add_trace(go.Scatter(
             x=cdf["日期"], y=cdf["调整后成本/股"],
@@ -244,7 +266,7 @@ def page_wheel():
         left_col, right_col = st.columns(2)
 
         with left_col:
-            st.subheader("💹 逐笔交易年化收益")
+            _heading("逐笔交易年化收益")
             display_df = pd.DataFrame(trade_details)[
                 ["日期", "操作", "张数", "权利金/张", "总额(含×100)",
                  "手续费", "净收入", "单笔收益%", "年化收益%"]
@@ -252,7 +274,7 @@ def page_wheel():
             st.dataframe(display_df, use_container_width=True, hide_index=True)
 
         with right_col:
-            st.subheader("📈 累计权利金收益曲线")
+            _heading("累计权利金收益曲线")
             cum_df = pd.DataFrame(trade_details)
             fig = go.Figure()
             fig.add_trace(go.Scatter(
@@ -274,7 +296,26 @@ def page_wheel():
     #  4️⃣  盈亏分析 & 回本预测
     # ═══════════════════════════════════════════════════
     if shares > 0 and cost_basis > 0:
-        st.subheader("🎯 盈亏分析 & 回本预测")
+        _heading("盈亏分析 & 回本预测")
+
+        # ── Net Basis = 持仓成本 − 已收权利金 ──
+        stock_only_cost = sum(
+            t["price"] * t["quantity"]
+            for t in sym_txs if t["action"] in ("BUY", "ASSIGNMENT")
+        )
+        net_basis = stock_only_cost - net_prem  # 净成本基准
+        net_basis_per_share = net_basis / shares if shares else 0
+
+        # 获取当前股价
+        try:
+            from api.stock_data import get_current_price
+            cur_info = get_current_price(selected)
+            cur_price = cur_info.get("price", 0) if cur_info else 0
+        except Exception:
+            cur_price = 0
+
+        # 对比当前股价与净成本
+        net_pnl_vs_price = (cur_price - net_basis_per_share) * shares if cur_price and shares else 0
 
         if option_txs:
             first_opt_date = datetime.strptime(option_txs[0]["datetime"][:10], "%Y-%m-%d")
@@ -285,40 +326,35 @@ def page_wheel():
             avg_weekly_prem = 0
             weeks_active = 0
 
-        if avg_weekly_prem > 0 and shares > 0:
-            stock_only_cost = sum(
-                t["price"] * t["quantity"]
-                for t in sym_txs if t["action"] in ("BUY", "ASSIGNMENT")
-            )
-            already_earned = net_prem
-            remaining = stock_only_cost - already_earned
-            weeks_to_zero = (
-                remaining / avg_weekly_prem if avg_weekly_prem > 0 else float("inf")
+        c1, c2, c3, c4, c5 = st.columns(5)
+        c1.metric("原始股票成本", f"${stock_only_cost:,.0f}")
+        c2.metric("净成本基准", f"${net_basis:,.0f}")
+        c3.metric("净成本/股", f"${net_basis_per_share:.2f}")
+        if cur_price:
+            c4.metric("当前股价", f"${cur_price:.2f}",
+                      delta=f"vs净成本 ${cur_price - net_basis_per_share:+.2f}")
+        else:
+            c4.metric("当前股价", "—")
+        c5.metric("每周均权利金", f"${avg_weekly_prem:,.2f}")
+
+        if avg_weekly_prem > 0 and net_basis > 0:
+            weeks_to_zero = net_basis / avg_weekly_prem
+            st.info(
+                f"以每周 ${avg_weekly_prem:.2f} 权利金计算，预计 **{weeks_to_zero:.0f} 周"
+                f"（{weeks_to_zero / 4.33:.0f} 月）** 完全回本"
             )
 
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("💰 原始股票成本", f"${stock_only_cost:,.0f}")
-            c2.metric("📈 已回收权利金", f"${already_earned:,.2f}")
-            c3.metric("📊 每周平均权利金", f"${avg_weekly_prem:,.2f}")
-            if weeks_to_zero < 9999:
-                c4.metric(
-                    "⏱️ 预计回本",
-                    f"{weeks_to_zero:.0f} 周 ({weeks_to_zero / 4.33:.0f} 月)",
-                )
-            else:
-                c4.metric("⏱️ 预计回本", "无法预估")
-
-            progress = (
-                min(already_earned / stock_only_cost, 1.0)
-                if stock_only_cost > 0 else 0
-            )
-            st.progress(progress, text=f"回本进度 {progress * 100:.1f}%")
+        progress = (
+            min(net_prem / stock_only_cost, 1.0)
+            if stock_only_cost > 0 else 0
+        )
+        st.progress(progress, text=f"回本进度 {progress * 100:.1f}%")
 
     # ═══════════════════════════════════════════════════
     #  5️⃣  收益率热力图（按月×操作类型）
     # ═══════════════════════════════════════════════════
     if option_txs:
-        st.subheader("🗺️ 收益率热力图（月 × 操作类型）")
+        _heading("收益率热力图（月 × 操作类型）")
         heat_rows = []
         for t in option_txs:
             month = t["datetime"][:7]
@@ -342,11 +378,14 @@ def page_wheel():
                 x=pivot.columns.tolist(),
                 y=pivot.index.tolist(),
                 colorscale=[
-                    [0, COLORS["danger"]], [0.5, "#FFFFFF"], [1, COLORS["primary"]]
+                    [0, "#C0392B"], [0.35, "#E8A0A0"],
+                    [0.5, "#FAFAFA"],
+                    [0.65, "#A0D8A0"], [1, "#2E8B57"],
                 ],
                 zmid=0,
                 text=[[f"${v:,.0f}" for v in row] for row in pivot.values],
                 texttemplate="%{text}",
+                textfont=dict(size=12, family="'Times New Roman', serif"),
                 hovertemplate="月份: %{x}<br>操作: %{y}<br>金额: %{text}<extra></extra>",
             ))
             fig.update_layout(
@@ -369,7 +408,7 @@ def page_wheel():
         left, right = st.columns(2)
 
         with left:
-            st.subheader("📈 权利金时间线")
+            _heading("权利金时间线")
             df_opt["premium_real"] = df_opt.apply(
                 lambda r: r["price"] * r["quantity"] * 100
                 * (1 if r["action"] in ("STO", "STO_CALL") else -1),
@@ -393,7 +432,7 @@ def page_wheel():
                 st.plotly_chart(fig, use_container_width=True)
 
         with right:
-            st.subheader("📊 操作分布")
+            _heading("操作分布")
             act_counts = df_opt["action"].value_counts()
             fig = go.Figure(go.Pie(
                 labels=[ACTION_LABELS.get(a, a) for a in act_counts.index],
@@ -410,7 +449,7 @@ def page_wheel():
     # ═══════════════════════════════════════════════════
     #  7️⃣  期权交易明细
     # ═══════════════════════════════════════════════════
-    st.subheader("📋 期权交易明细")
+    _heading("期权交易明细")
     if not df_opt.empty:
         d = df_opt[["datetime", "action", "quantity", "price", "fees"]].copy()
         d["日期"]       = pd.to_datetime(d["datetime"]).dt.strftime("%Y-%m-%d")

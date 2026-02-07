@@ -19,110 +19,200 @@ PAGE_CONFIG = dict(
 # ═══════════════════════════════════════════════════════
 
 COLORS = {
-    "primary":    "#1a73e8",
-    "secondary":  "#34a853",
-    "danger":     "#ea4335",
-    "warning":    "#fbbc04",
-    "purple":     "#a142f4",
-    "blue_light": "#4285f4",
-    "bg_light":   "#f8f9fa",
-    "border":     "#e0e7ff",
+    "primary":    "#2B4C7E",
+    "secondary":  "#5B8C5A",
+    "danger":     "#C0392B",
+    "warning":    "#D4A017",
+    "purple":     "#6C3483",
+    "blue_light": "#3B7DD8",
+    "bg_light":   "#F9F7F0",
+    "border":     "#C8C3B5",
+    "gain":       "#5B8C5A",
+    "loss":       "#C0392B",
+    "text":       "#2D2D2D",
+    "text_muted": "#6B6B6B",
 }
 
 GLOBAL_CSS = """
 <style>
-    .stApp {
-        background: linear-gradient(180deg, #f8f9fa 0%, #e9f0ff 100%);
+    /* ── Hide Material Symbols fallback text (sidebar collapse btn) ── */
+    button[kind="header"] span.material-symbols-rounded,
+    [data-testid="stSidebarCollapseButton"] span,
+    [data-testid="collapsedControl"] span {
+        font-size: 0 !important;
+        overflow: hidden !important;
     }
-    h1 { color: #1a73e8 !important; font-weight: 800; letter-spacing: -0.5px; }
-    h2, h3 { color: #1a73e8 !important; font-weight: 700; }
+    button[kind="header"] span.material-symbols-rounded::after,
+    [data-testid="stSidebarCollapseButton"] span::after,
+    [data-testid="collapsedControl"] span::after {
+        content: "\276E";
+        font-size: 16px;
+        font-family: serif;
+    }
+    [data-testid="collapsedControl"] span::after {
+        content: "\276F";
+    }
 
+    /* ── Global — vintage parchment ── */
+    .stApp {
+        font-family: Georgia, 'Times New Roman', serif !important;
+        background: #F9F7F0 !important;
+        color: #2D2D2D;
+    }
+    html, body, [class*="st-"] {
+        font-family: Georgia, 'Times New Roman', serif !important;
+    }
+
+    /* ── Headings — serif, black ── */
+    h1 {
+        color: #2D2D2D !important;
+        font-family: Georgia, 'Times New Roman', serif !important;
+        font-weight: 700 !important;
+        font-size: 1.8rem !important;
+        letter-spacing: 0;
+        border-bottom: 3px solid #2D2D2D;
+        padding-bottom: 8px;
+    }
+    h2 {
+        color: #2D2D2D !important;
+        font-family: Georgia, 'Times New Roman', serif !important;
+        font-weight: 700 !important;
+        font-size: 1.2rem !important;
+    }
+    h3 {
+        color: #3D3D3D !important;
+        font-family: Georgia, 'Times New Roman', serif !important;
+        font-weight: 600 !important;
+        font-size: 1rem !important;
+    }
+
+    /* ── Metric cards — flat, no bg, fine line separators ── */
     div[data-testid="stMetric"] {
-        background: linear-gradient(135deg, #ffffff 0%, #f4f7ff 100%);
-        border-radius: 16px;
-        padding: 20px;
-        border: 1.5px solid #e0e7ff;
-        box-shadow: 0 2px 10px rgba(26,115,232,0.06);
-        transition: box-shadow .2s;
+        background: transparent !important;
+        border-radius: 0 !important;
+        padding: 10px 12px;
+        border: none !important;
+        box-shadow: none !important;
+        border-right: 1px solid #C8C3B5 !important;
     }
     div[data-testid="stMetric"]:hover {
-        box-shadow: 0 6px 20px rgba(26,115,232,0.12);
+        box-shadow: none !important;
+        transform: none !important;
+    }
+    div[data-testid="stMetric"] label {
+        color: #6B6B6B !important;
+        font-size: 12px !important;
+        font-weight: 400 !important;
+        font-family: Georgia, serif !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.5px !important;
+    }
+    div[data-testid="stMetric"] [data-testid="stMetricValue"] {
+        color: #2D2D2D !important;
+        font-weight: 700 !important;
+        font-size: 1.4rem !important;
+        font-family: 'Times New Roman', Georgia, serif !important;
+    }
+    div[data-testid="stMetricDelta"] svg { width: 14px; height: 14px; }
+
+    /* ── Sidebar — parchment, spacious ── */
+    section[data-testid="stSidebar"] {
+        background: #F4F1E8 !important;
+        border-right: 2px solid #2D2D2D !important;
+        border-radius: 0 !important;
+        padding-top: 1rem !important;
+    }
+    section[data-testid="stSidebar"] .stMarkdown hr {
+        border-color: #C8C3B5;
+    }
+    section[data-testid="stSidebar"] a {
+        color: #8A8A8A !important;
+        text-decoration: none !important;
+    }
+    section[data-testid="stSidebar"] a:hover {
+        color: #2D2D2D !important;
     }
 
+    /* ── Buttons — vintage flat ── */
     .stButton > button {
-        background: linear-gradient(135deg, #1a73e8, #1565c0);
-        color: #fff !important;
-        border: none;
-        border-radius: 10px;
+        background: #2B4C7E !important;
+        color: #F9F7F0 !important;
+        border: 1px solid #2D2D2D !important;
+        border-radius: 0 !important;
         font-weight: 600;
-        padding: 0.5rem 1.2rem;
-        box-shadow: 0 3px 10px rgba(26,115,232,0.25);
-        transition: all .2s;
+        font-size: 13px;
+        font-family: Georgia, serif !important;
+        padding: 0.45rem 1rem;
+        box-shadow: none !important;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
     }
     .stButton > button:hover {
-        background: linear-gradient(135deg, #1565c0, #0d47a1);
-        box-shadow: 0 5px 14px rgba(26,115,232,0.35);
-        transform: translateY(-1px);
+        background: #1E3A5F !important;
+        box-shadow: none !important;
     }
 
-    section[data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #ffffff 0%, #f0f5ff 100%);
-        border-right: 2px solid #e0e7ff;
-    }
-    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] h3 {
-        color: #1a73e8 !important;
-    }
-
+    /* ── Form inputs — flat ── */
     .stSelectbox, .stNumberInput, .stTextInput, .stDateInput {
-        background-color: #ffffff !important;
+        background-color: #FFFEF9 !important;
+    }
+    .stSelectbox > div, .stNumberInput > div, .stTextInput > div, .stDateInput > div {
+        border-radius: 0 !important;
     }
 
+    /* ── Expander — solid border, no radius ── */
     details[data-testid="stExpander"] {
-        border: 1.5px solid #e0e7ff;
-        border-radius: 12px;
-        background: #fff;
+        border: 1px solid #2D2D2D !important;
+        border-radius: 0 !important;
+        background: #FFFEF9 !important;
     }
 
-    .stDataFrame { border-radius: 12px; overflow: hidden; }
+    /* ── DataFrames — solid border, no shadow ── */
+    .stDataFrame {
+        border-radius: 0 !important;
+        overflow: hidden;
+        border: 1px solid #2D2D2D !important;
+        box-shadow: none !important;
+    }
+    .stDataFrame [data-testid="glideDataEditor"] {
+        border-radius: 0 !important;
+    }
+
+    /* ── Tabs — serif ── */
+    button[data-baseweb="tab"] {
+        font-family: Georgia, serif !important;
+        font-weight: 600 !important;
+        font-size: 14px !important;
+        border-radius: 0 !important;
+    }
+
+    /* ── Section Divider — thick black line ── */
+    .section-divider {
+        border: none;
+        border-top: 2px solid #2D2D2D;
+        margin: 1.5rem 0;
+    }
+    /* thin variant */
+    .section-divider-thin {
+        border: none;
+        border-top: 1px solid #2D2D2D;
+        margin: 1.2rem 0;
+    }
+
+    /* ── Plotly chart container — hard edges ── */
+    .stPlotlyChart {
+        border-radius: 0 !important;
+        overflow: hidden;
+    }
+
+    /* ── Remove all remaining rounded corners ── */
+    [data-testid="stContainer"],
+    [data-testid="stForm"],
+    .stAlert {
+        border-radius: 0 !important;
+    }
 </style>
 """
-
-# ═══════════════════════════════════════════════════════
-#  股票中文名映射
-# ═══════════════════════════════════════════════════════
-
-STOCK_NAMES = {
-    "AAPL":  "苹果",
-    "MSFT":  "微软",
-    "GOOGL": "谷歌",
-    "AMZN":  "亚马逊",
-    "TSLA":  "特斯拉",
-    "NVDA":  "英伟达",
-    "META":  "Meta",
-    "VOO":   "标普500ETF",
-    "QQQ":   "纳指100ETF",
-    "SPY":   "标普500ETF",
-    "IWM":   "罗素2000ETF",
-    "GLD":   "黄金ETF",
-    "SLV":   "白银ETF",
-    "PLTR":  "Palantir",
-    "AMD":   "超威半导体",
-    "BABA":  "阿里巴巴",
-    "JD":    "京东",
-    "PDD":   "拼多多",
-    "NIO":   "蔚来",
-    "COIN":  "Coinbase",
-    "SOFI":  "SoFi",
-    "MARA":  "Marathon",
-    "RIOT":  "Riot",
-    "INTC":  "英特尔",
-    "JPM":   "摩根大通",
-    "BAC":   "美国银行",
-    "DIS":   "迪士尼",
-    "NFLX":  "奈飞",
-    "V":     "Visa",
-    "MA":    "万事达",
-}
 
 # ═══════════════════════════════════════════════════════
 #  操作中文翻译

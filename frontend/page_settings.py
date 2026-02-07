@@ -4,7 +4,11 @@ from pathlib import Path
 
 
 def page_settings():
-    st.title("⚙️ 设置")
+    st.markdown(
+        "<h1 style='margin-bottom:4px'>⚙️ 设置</h1>"
+        "<p style='color:#6B6B6B;font-size:14px;margin-top:0'>Settings</p>",
+        unsafe_allow_html=True,
+    )
 
     st.subheader("💾 数据备份")
     st.code(

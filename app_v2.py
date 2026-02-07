@@ -16,68 +16,90 @@ from frontend.page_wheel import page_wheel
 from frontend.page_settings import page_settings
 
 
-# ── 页面注册表（模块 → 页面列表） ──
-MODULES = {
-    "🏠 个人资产管理": [
-        ("📊 总览",      page_overview),
-        ("📅 月度快照",  page_snapshots),
-        ("📆 年度汇总",  page_yearly_summary),
-        ("💸 支出/收入", page_expense_tracker),
-    ],
-    "📈 投资追踪": [
-        ("📈 投资组合",  page_portfolio),
-        ("📝 交易日志",  page_trading_log),
-        ("🎯 期权车轮",  page_wheel),
-    ],
-    "⚙️ 系统": [
-        ("⚙️ 设置", page_settings),
-    ],
-}
+# ── 页面注册表 ──
+PAGES = [
+    # (label,        icon,                           handler)
+    ("📊 总览",      ":material/dashboard:",          page_overview),
+    ("📅 月度快照",  ":material/calendar_month:",     page_snapshots),
+    ("📆 年度汇总",  ":material/bar_chart:",          page_yearly_summary),
+    ("💸 收支管理",  ":material/account_balance:",    page_expense_tracker),
+    ("📈 投资组合",  ":material/trending_up:",        page_portfolio),
+    ("📝 交易日志",  ":material/receipt_long:",       page_trading_log),
+    ("🎯 期权车轮",  ":material/target:",             page_wheel),
+    ("⚙️ 设置",     ":material/settings:",           page_settings),
+]
+
+# ── 侧边栏导航 CSS ──
+_NAV_CSS = """
+<style>
+    /* 侧边栏 radio 导航 — 复古风格 */
+    section[data-testid="stSidebar"] div[role="radiogroup"] {
+        gap: 2px;
+    }
+    section[data-testid="stSidebar"] div[role="radiogroup"] label {
+        padding: 12px 18px !important;
+        border-radius: 0 !important;
+        font-size: 15px !important;
+        font-weight: 500 !important;
+        font-family: Georgia, 'Times New Roman', serif !important;
+        color: #2D2D2D !important;
+        cursor: pointer;
+        transition: all 0.15s;
+        background: transparent !important;
+        border: none !important;
+        border-left: 3px solid transparent !important;
+    }
+    section[data-testid="stSidebar"] div[role="radiogroup"] label:hover {
+        background: #EDE9DD !important;
+    }
+    section[data-testid="stSidebar"] div[role="radiogroup"] label[data-checked="true"],
+    section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked) {
+        background: #2B4C7E !important;
+        color: #F9F7F0 !important;
+        font-weight: 700 !important;
+        border-left: 3px solid #D4A017 !important;
+        box-shadow: none !important;
+    }
+    /* 隐藏 radio 圆点 */
+    section[data-testid="stSidebar"] div[role="radiogroup"] input[type="radio"] {
+        display: none !important;
+    }
+    section[data-testid="stSidebar"] div[role="radiogroup"] label div[data-testid="stMarkdownContainer"] p {
+        font-size: 15px !important;
+    }
+</style>
+"""
 
 
 def main():
     st.set_page_config(**PAGE_CONFIG)
     st.markdown(GLOBAL_CSS, unsafe_allow_html=True)
+    st.markdown(_NAV_CSS, unsafe_allow_html=True)
     init_database()
 
-    # ── 侧边栏：列出全部模块和页面，一键切换 ──
+    # ── 侧边栏 ──
     with st.sidebar:
-        st.title("💰 财富追踪器")
-        st.markdown("---")
+        st.markdown(
+            "<h2 style='text-align:center;margin-bottom:0'>💰 财富追踪器</h2>"
+            "<p style='text-align:center;color:#7a8599;font-size:13px;margin-top:2px'>Wealth Tracker v2.0</p>",
+            unsafe_allow_html=True,
+        )
+        st.markdown("")  # spacer
 
-        # 构建所有页面的 flat 列表（用于 radio）
-        all_pages = []          # [(display_label, handler)]
-        module_headers = {}     # display_label → module_name（用来插标题）
-
-        for mod_name, pages in MODULES.items():
-            for label, handler in pages:
-                all_pages.append((label, handler))
-                module_headers[label] = mod_name
-
-        # 用 radio 展示，label 前带模块分组前缀
-        page_labels = [label for label, _ in all_pages]
-
-        # 自定义渲染：按模块分组显示
-        if "current_page" not in st.session_state:
-            st.session_state.current_page = page_labels[0]
-
-        for mod_name, pages in MODULES.items():
-            st.markdown(f"### {mod_name}")
-            for label, handler in pages:
-                if st.button(
-                    label,
-                    key=f"nav_{label}",
-                    use_container_width=True,
-                    type="primary" if st.session_state.current_page == label else "secondary",
-                ):
-                    st.session_state.current_page = label
+        page_labels = [p[0] for p in PAGES]
+        selected = st.radio(
+            label="导航",
+            options=page_labels,
+            index=0,
+            label_visibility="collapsed",
+        )
 
         st.markdown("---")
-        st.caption("v2.0 · [GitHub](https://github.com/kikojay/option-go)")
+        st.caption("© 2026 · [GitHub](https://github.com/kikojay/option-go)")
 
     # ── 路由 ──
-    page_map = {label: handler for label, handler in all_pages}
-    handler = page_map.get(st.session_state.current_page, page_overview)
+    page_map = {p[0]: p[2] for p in PAGES}
+    handler = page_map.get(selected, page_overview)
     handler()
 
 

@@ -12,8 +12,11 @@ from .helpers import (
 
 
 def page_trading_log():
-    st.title("📝 交易日志 Trading Log")
-    st.caption("记录每笔投资交易，支持筛选和统计")
+    st.markdown(
+        "<h1 style='margin-bottom:4px'>📝 交易日志</h1>"
+        "<p style='color:#6B6B6B;font-size:14px;margin-top:0'>记录每笔投资交易，支持筛选和统计</p>",
+        unsafe_allow_html=True,
+    )
 
     rates = fetch_exchange_rates()
     usd_rmb = rates["USD"]["rmb"]

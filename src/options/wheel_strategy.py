@@ -208,6 +208,7 @@ class WheelStrategyCalculator:
             "symbol": symbol,
             "current_shares": basis["current_shares"],
             "adjusted_cost": basis["adjusted_cost"],
+            "cost_basis": basis["cost_basis"],
             "total_premiums": basis["total_premiums"],
             "option_pnl": option_pnl["total_pnl"],
             "unrealized_pnl": unrealized,

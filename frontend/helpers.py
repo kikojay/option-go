@@ -2,11 +2,11 @@
 工具函数 - 汇率获取、金额转换、Plotly 布局、Metric 渲染、Transaction 转换
 """
 import streamlit as st
-import requests
 from typing import Dict, List
 
 from src.models import Transaction, TransactionType
-from .config import STOCK_NAMES
+from api.exchange_rates import get_exchange_rates as _api_get_rates
+from api.stock_names import get_stock_label as _api_stock_label
 
 
 # ═══════════════════════════════════════════════════════
@@ -15,26 +15,14 @@ from .config import STOCK_NAMES
 
 @st.cache_data(ttl=3600)
 def fetch_exchange_rates() -> Dict:
-    """获取汇率（缓存 1 小时）"""
-    defaults = {
-        "USD": {"usd": 1.0, "rmb": 7.2},
-        "CNY": {"usd": 0.14, "rmb": 1.0},
-        "HKD": {"usd": 0.128, "rmb": 1.0},
+    """获取汇率（缓存 1 小时）。 兼容旧接口 key 'rmb'"""
+    raw = _api_get_rates()
+    # api 返回 cny 键，前端历史代码用 rmb 键，做一层兼容
+    return {
+        "USD": {"usd": 1.0, "rmb": raw["USD"]["cny"]},
+        "CNY": {"usd": raw["CNY"]["usd"], "rmb": 1.0},
+        "HKD": {"usd": raw["HKD"]["usd"], "rmb": raw["HKD"]["cny"]},
     }
-    try:
-        resp = requests.get(
-            "https://api.exchangerate-api.com/v4/latest/USD", timeout=5
-        )
-        if resp.status_code == 200:
-            cny_rate = resp.json()["rates"].get("CNY", 7.2)
-            return {
-                "USD": {"usd": 1.0, "rmb": cny_rate},
-                "CNY": {"usd": 1 / cny_rate, "rmb": 1.0},
-                "HKD": {"usd": 1 / 7.8, "rmb": cny_rate / 7.8},
-            }
-    except Exception:
-        pass
-    return defaults
 
 
 def to_rmb(amount: float, currency: str, rates: Dict) -> float:
@@ -49,9 +37,8 @@ def to_rmb(amount: float, currency: str, rates: Dict) -> float:
 # ═══════════════════════════════════════════════════════
 
 def stock_label(symbol: str) -> str:
-    """返回 'AAPL 苹果' 格式的标签"""
-    cn = STOCK_NAMES.get(symbol, "")
-    return f"{symbol} {cn}" if cn else symbol
+    """返回 'AAPL 苹果' 格式的标签（自动从 api/stock_names 获取）"""
+    return _api_stock_label(symbol)
 
 
 # ═══════════════════════════════════════════════════════
@@ -59,13 +46,41 @@ def stock_label(symbol: str) -> str:
 # ═══════════════════════════════════════════════════════
 
 def plotly_layout(**overrides) -> dict:
-    """统一 Plotly 布局参数"""
+    """统一 Plotly 布局参数 — 复古金融报告风格"""
     base = dict(
-        template="plotly",
+        template="plotly_white",
         paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="#f8f9fa",
+        plot_bgcolor="rgba(0,0,0,0)",
         margin=dict(l=40, r=20, t=40, b=40),
-        font=dict(family="Inter, sans-serif", size=13),
+        font=dict(family="'Times New Roman', Georgia, serif", size=15,
+                  color="#2D2D2D"),
+        xaxis=dict(
+            showgrid=False,
+            zeroline=False,
+            linecolor="#2D2D2D",
+            linewidth=1,
+            tickfont=dict(size=14, color="#2D2D2D",
+                          family="'Times New Roman', Georgia, serif"),
+        ),
+        yaxis=dict(
+            showgrid=False,
+            zeroline=False,
+            linecolor="#2D2D2D",
+            linewidth=1,
+            tickfont=dict(size=14, color="#2D2D2D",
+                          family="'Times New Roman', Georgia, serif"),
+        ),
+        hoverlabel=dict(
+            bgcolor="#FFFEF9",
+            bordercolor="#2D2D2D",
+            font=dict(family="'Times New Roman', Georgia, serif",
+                      size=14, color="#2D2D2D"),
+        ),
+        legend=dict(
+            font=dict(size=13, color="#2D2D2D",
+                      family="'Times New Roman', Georgia, serif"),
+            bgcolor="rgba(0,0,0,0)",
+        ),
     )
     base.update(overrides)
     return base
