@@ -1,0 +1,69 @@
+"""
+全局配置包 — Single Source of Truth
+
+所有常量、主题、标签统一从此处导入。
+"""
+from .constants import (
+    TransactionCategory,
+    INCOME_SUBCATEGORIES,
+    EXPENSE_SUBCATEGORIES,
+    INVESTMENT_SUBCATEGORIES,
+    TRADING_SUBCATEGORIES,
+    CATEGORY_SUBCATEGORIES,
+    ACCOUNTING_ACTIONS,
+    CAPITAL_ACTIONS,
+    STOCK_ACTIONS,
+    OPTION_ACTIONS,
+    YIELD_ACTIONS,
+    INVESTMENT_ACTIONS,
+    ALL_ACTIONS,
+    infer_category,
+    PAGE_CONFIG,
+)
+from .theme import (
+    COLORS,
+    GLOBAL_CSS,
+    MOBILE_CSS,
+    PLOTLY_LAYOUT_DEFAULTS,
+    METRIC_CARD_STYLE,
+)
+from .labels import (
+    ACTION_CN,
+    CATEGORY_CN,
+    ACCOUNT_CATEGORY_CN,
+    OPTION_ACTION_LABELS,
+    TRADE_ACTION_OPTIONS,
+)
+
+__all__ = [
+    # 分类
+    "TransactionCategory",
+    "INCOME_SUBCATEGORIES",
+    "EXPENSE_SUBCATEGORIES",
+    "INVESTMENT_SUBCATEGORIES",
+    "TRADING_SUBCATEGORIES",
+    "CATEGORY_SUBCATEGORIES",
+    # 操作集合
+    "ACCOUNTING_ACTIONS",
+    "CAPITAL_ACTIONS",
+    "STOCK_ACTIONS",
+    "OPTION_ACTIONS",
+    "YIELD_ACTIONS",
+    "INVESTMENT_ACTIONS",
+    "ALL_ACTIONS",
+    "infer_category",
+    # 页面
+    "PAGE_CONFIG",
+    # 主题
+    "COLORS",
+    "GLOBAL_CSS",
+    "MOBILE_CSS",
+    "PLOTLY_LAYOUT_DEFAULTS",
+    "METRIC_CARD_STYLE",
+    # 标签
+    "ACTION_CN",
+    "CATEGORY_CN",
+    "ACCOUNT_CATEGORY_CN",
+    "OPTION_ACTION_LABELS",
+    "TRADE_ACTION_OPTIONS",
+]

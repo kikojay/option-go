@@ -11,7 +11,10 @@ import json
 from pathlib import Path
 from typing import Dict, Optional
 
-import yfinance as yf
+try:
+    import yfinance as yf
+except Exception:  # pragma: no cover - 运行环境可能未装 yfinance
+    yf = None
 
 # ── 文件路径 ──
 _DATA_DIR = Path(__file__).parent.parent / "data"
@@ -61,6 +64,8 @@ def _save_names_file(data: Dict[str, Dict]):
 
 def _fetch_name_from_yfinance(symbol: str) -> Optional[Dict]:
     """从 yfinance 获取标的名称信息"""
+    if yf is None:
+        return None
     try:
         ticker = yf.Ticker(symbol)
         info = ticker.info
@@ -88,6 +93,8 @@ def get_stock_name(symbol: str) -> str:
     Returns:
         "苹果" 或 "Apple Inc." 或原始代码
     """
+    if not symbol:
+        return "—"
     sym = symbol.upper()
     names = _load_names_file()
 
@@ -152,6 +159,8 @@ def get_stock_label(symbol: str) -> str:
 
     比直接调 get_stock_name 多带上代码前缀。
     """
+    if not symbol:
+        return "—"
     name = get_stock_name(symbol)
     if name and name != symbol:
         return f"{symbol} {name}"

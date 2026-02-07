@@ -8,7 +8,10 @@
 """
 import json
 import time
-import yfinance as yf
+try:
+    import yfinance as yf
+except Exception:  # pragma: no cover - 运行环境可能未装 yfinance
+    yf = None
 from pathlib import Path
 from typing import Dict, List, Optional
 from datetime import datetime
@@ -61,6 +64,9 @@ def get_current_price(symbol: str) -> Optional[Dict]:
         entry = cache[key]
         if time.time() - entry.get("_ts", 0) < _PRICE_TTL:
             return entry
+
+    if yf is None:
+        return cache.get(key)
 
     try:
         ticker = yf.Ticker(key)
@@ -115,6 +121,9 @@ def get_batch_prices(symbols: List[str]) -> Dict[str, Dict]:
             need_fetch.append(key)
 
     if not need_fetch:
+        return result
+
+    if yf is None:
         return result
 
     # 用 yfinance.download 批量拉最新一根 bar
@@ -173,6 +182,9 @@ def get_price_history(
         [{"date": "2026-01-06", "open": 150.0, "high": ..., "low": ...,
           "close": 152.0, "volume": 123456}, ...]
     """
+    if yf is None:
+        return []
+
     try:
         ticker = yf.Ticker(symbol.upper())
         hist = ticker.history(period=period, interval=interval)
