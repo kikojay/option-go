@@ -87,9 +87,10 @@ class WheelStrategyCalculator:
             }
 
         # 调整后成本（每股）
-        # net_cost = 股票支出 - 期权收入 + 手续费
-        # 因为 premiums_from_options 是负数（收入），所以直接减去它
-        net_cost = stock_buy - premiums_from_options + fees_paid
+        # net_cost = 股票支出 + 期权净支出(含符号) + 手续费
+        # premiums_from_options 为负 → 净收入 → 降低成本
+        # premiums_from_options 为正 → 净支出 → 增加成本
+        net_cost = stock_buy + premiums_from_options + fees_paid
         adjusted_cost = net_cost / current_shares
 
         return {

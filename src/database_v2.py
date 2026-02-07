@@ -40,11 +40,18 @@ def init_database():
 
 
 def init_default_categories():
-    """初始化默认账户分类"""
+    """初始化默认账户分类（去重：按 name 判断是否已存在）"""
     conn = get_connection()
     cursor = conn.cursor()
-    
-    # 资产分类
+
+    # 先清除历史重复行：每个 name 只保留 id 最小的那条
+    cursor.execute("""
+        DELETE FROM accounts WHERE id NOT IN (
+            SELECT MIN(id) FROM accounts GROUP BY name
+        )
+    """)
+
+    # 确保 9 个默认分类存在
     asset_categories = [
         ('现金', 'cash', 'USD'),
         ('美股', 'stock', 'USD'),
@@ -56,16 +63,17 @@ def init_default_categories():
         ('应收账款', 'receivable', 'CNY'),
         ('其他', 'other', 'USD'),
     ]
-    
+
     for name, cat, curr in asset_categories:
-        try:
+        existing = cursor.execute(
+            "SELECT id FROM accounts WHERE name = ?", (name,)
+        ).fetchone()
+        if not existing:
             cursor.execute(
-                "INSERT OR IGNORE INTO accounts (name, type, category, currency) VALUES (?, 'asset', ?, ?)",
-                (name, cat, curr)
+                "INSERT INTO accounts (name, type, category, currency) VALUES (?, 'asset', ?, ?)",
+                (name, cat, curr),
             )
-        except:
-            pass
-    
+
     conn.commit()
     conn.close()
 
